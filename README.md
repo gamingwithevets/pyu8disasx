@@ -15,36 +15,24 @@ from pyu8disasx import disas
 ```
 Now you can start using the module.
 
-### ```python
-class disas.Register(size, n)
-```
+### `class disas.Register(size, n)`
 `size` must be one of 1 (Rn), 2 (ERn), 4 (XRn), and 8 (QRn).
 
 `n` must be an integer in `range(0, 16, size)`.
 
-#### ```python
-Register.__str__()
-```
+#### `Register.__str__()`
 Returns a string representing the register object.
 
-### ```python
-class disas.RegisterBit(register, bit)
-```
+### `class disas.RegisterBit(register, bit)`
 `register` must be a `Register` object with `size=1`.
 
 `bit` must be an integer between 0 and 7.
 
-#### ```python
-RegisterBit.__str__()
-```
+#### `RegisterBit.__str__()`
 Returns a string representing the register bit offset object.
 
-### ```python
-class disas.Num8(value)
-```
+### `class disas.Num8(value)`
 `value` must be an integer. It will be ANDed with 255.
 
-#### ```python
-Num8.__str__()
-```
+#### `Num8.__str__()`
 Returns a string representing the 8-bit number object. The format of the string depends on `Num8.disp` and `Num8.sign`.
