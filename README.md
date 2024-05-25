@@ -10,7 +10,7 @@ Nope! Not yet.
 The documentation below is currently very basic.
 
 First, you will need to place the repostory directory in the same one as your Python script, then add this to your script:
-```
+```python
 from pyu8disasx import disas
 ```
 Now you can start using the module.
