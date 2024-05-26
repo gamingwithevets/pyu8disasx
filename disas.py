@@ -32,21 +32,29 @@ class RegisterBit:
 	def __str__(self): return f'{self.register}.{self.bit}'
 	def __setattr__(self, name, value): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
 
-class Num8:
-	__slots__ = ('value', 'disp', 'sign')
-	def __init__(self, value):
-		if type(value) == float: raise TypeError('immediate type cannot be float')
-		super().__setattr__('value', value & 0xff)
-		self.disp = 0
+class Num:
+	__slots__ = ('bits', 'value', 'disp', 'sign')
+	def __init__(self, bits, value):
+		if bits < 1: raise ValueError('invalid bit length')
+		elif type(value) == float: raise TypeError('immediate type cannot be float')
+		super().__setattr__('bits', bits)
+		super().__setattr__('value', value & (2**bits))
+		self.disp = numdisp.HEX
 		self.sign = True
 
-	def __repr__(self): return f'Imm8({self.value}, disp={numdisp(self.disp).name})'
+	def __repr__(self): return f'Num(bits={self.bits}, value={self.value}, disp={numdisp(self.disp).name})'
 	def __str__(self):
-		value = self.value - (self.value >> 7) * (2**8) if self.sign else self.value
+		value = self.value - (self.value >> (bits - 1)) * (2**bits) if self.sign else self.value
 		if self.disp == numdisp.HEX: return f'#{value:X}H'
 		elif self.disp == numdisp.DEC: return f'#{value}'
 		elif self.disp == numdisp.OCT: return f'#{value:o}O'
 		elif self.disp == numdisp.BIN: return f'#{value:b}B'
 	def __setattr__(self, name, value):
-		if name == 'value': raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
+		if name in ('bits', 'value'): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
 		else: super().__setattr__(name, value)
+
+class Num8(Num):
+	def __init__(self, value): super().__init__(8, value)
+
+class Num7(Num):
+	def __init__(self, value): super().__init__(7, value)
