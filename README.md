@@ -7,6 +7,8 @@ Currently, the actual GUI application is not being worked on, however you can us
 Nope! Not yet.
 
 ## Module (`disas.py`)
+In its current state, the module is still very experimental and unfinished. The documentation below does not include everything at the moment.
+
 ### Getting started
 First, you will need to place the repostory directory in the same one as your Python script, then add this to your script:
 ```python
