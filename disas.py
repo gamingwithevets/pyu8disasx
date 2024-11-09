@@ -1,3 +1,8 @@
+import sys
+if __name__ == '__main__':
+	print('This script cannot be run normally.')
+	sys.exit()
+
 from enum import IntEnum, auto
 import ctypes
 
@@ -38,7 +43,7 @@ class Num:
 		if bits < 1: raise ValueError('invalid bit length')
 		elif type(value) == float: raise TypeError("'float' object cannot be interpreted as an integer")
 		super().__setattr__('bits', bits)
-		super().__setattr__('value', value & (2**bits))
+		super().__setattr__('value', value & (2**bits-1))
 		self.disp = numdisp.HEX
 		self.sign = True
 
@@ -67,8 +72,32 @@ def MemHandler(flags, value):
 	d = (flags >> 8) & 0xf
 	e = (flags >> 4) & 0xf
 	r = flags & 0xf
+def CondHandler(flags, value):
+	if value == 0: return 'GE'
+	elif value == 1: return 'LT'
+	elif value == 2: return 'GT'
+	elif value == 3: return 'LE'
+	elif value == 4: return 'GES'
+	elif value == 5: return 'LTS'
+	elif value == 6: return 'GTS'
+	elif value == 7: return 'LES'
+	elif value == 8: return 'NE'
+	elif value == 9: return 'EQ'
+	elif value == 0xa: return 'NV'
+	elif value == 0xb: return 'OV'
+	elif value == 0xc: return 'PS'
+	elif value == 0xd: return 'NS'
+	elif value == 0xe: return 'AL'
+
+	raise RuntimeError
 
 class Disassembly:
+	__instrs_dsr = [
+		['DSR', 0xe300, [0x00ff, 0,  0x0008, NumHandler]],
+		['DSR', 0x900f, [0x00f0, 4,  0x0001, RegHandler]],
+		['DSR', 0xfe9f, None],
+	]
+
 	__instrs = [
 		# original from https://github.com/gamingwithevets/u8_emu/blob/main/src/core/instr.c
 		
@@ -76,168 +105,212 @@ class Disassembly:
 		# [mnemonic, mask,  [mask, shift, flags, handler],          [mask, shift, flags, handler]]
 
 		# Arithmetic Instructions
-		['ADD',		0x8001,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['ADD',		0x1000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['ADD',		0xf006, [0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]]
-		['ADD',		0xe080, [0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0006, NumHandler]]
-		['ADDC',	0x8006,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['ADDC',	0x6000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['AND',		0x8002,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['AND',		0x2000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['CMP',		0x8007,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['CMP',		0x7000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['CMPC',	0x8005,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['CMPC',	0x5000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['MOV',		0xf005,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]]
-		['MOV',		0xe000,	[0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0006, NumHandler]]
-		['MOV',		0x8000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['MOV',		0x0000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['OR',		0x8003,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['OR',		0x3000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['XOR',		0x8004,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['XOR',		0x4000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]]
-		['CMP',		0xf007,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]]
-		['SUB',		0x8008,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['SUBC',	0x8009,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
+		['ADD',		0x8001,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['ADD',		0x1000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['ADD',		0xf006, [0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]],
+		['ADD',		0xe080, [0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0006, NumHandler]],
+		['ADDC',	0x8006,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['ADDC',	0x6000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['AND',		0x8002,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['AND',		0x2000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['CMP',		0x8007,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['CMP',		0x7000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['CMPC',	0x8005,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['CMPC',	0x5000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['MOV',		0xf005,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]],
+		['MOV',		0xe000,	[0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0006, NumHandler]],
+		['MOV',		0x8000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['MOV',		0x0000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['OR',		0x8003,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['OR',		0x3000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['XOR',		0x8004,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['XOR',		0x4000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
+		['CMP',		0xf007,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]],
+		['SUB',		0x8008,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SUBC',	0x8009,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 
 		# Shift Instructions
-		['SLL',		0x800a,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['SLL',		0x900a,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['SLLC',	0x800b,	[0x0f00, 8,  0x0012, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['SLLC',	0x900b,	[0x0f00, 8,  0x0012, RegHandler],		None]
-		['SRA',		0x800e,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['SRA',		0x900e,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['SRL',		0x800c,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['SRL',		0x900c,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['SRLC',	0x800d,	[0x0f00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['SRLC',	0x900d,	[0x0f00, 8,  0x0002, RegHandler],		None]
+		['SLL',		0x800a,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SLL',		0x900a,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['SLLC',	0x800b,	[0x0f00, 8,  0x0012, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SLLC',	0x900b,	[0x0f00, 8,  0x0012, RegHandler],		None],
+		['SRA',		0x800e,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SRA',		0x900e,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['SRL',		0x800c,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SRL',		0x900c,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['SRLC',	0x800d,	[0x0f00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SRLC',	0x900d,	[0x0f00, 8,  0x0002, RegHandler],		None],
 
 		# DSR Prefix Instructions
-		[None,		0xe300,	[0x00ff, 0,  0x0008, NumHandler],		None]
-		[None,		0x900f,	[0x00f0, 4,  0x0001, RegHandler],		None]
-		[None,		0xfe9f,	[0x0000, 0,  0x0006, RegCtrlHandler],	None]
+		[None,		0xe300,	[0x00ff, 0,  0x0008, NumHandler],		None],
+		[None,		0x900f,	[0x00f0, 4,  0x0001, RegHandler],		None],
+		[None,		0xfe9f,	[0x0000, 0,  0x0006, RegCtrlHandler],	None],
 
 		# Load/Store Instructions
-		['L',		0x9032,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1001, MemHandler]]
-		['L',		0x9052,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x9001, MemHandler]]
-		['L',		0x9002,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1002, MemHandler]]
-		['L',		0xa008,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1102, MemHandler]]
-		['L',		0xb000,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1253, MemHandler]]
-		['L',		0xb040,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1254, MemHandler]]
-		['L',		0x9012,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1100, MemHandler]]
-		['L',		0x9030,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0001, MemHandler]]
-		['L',		0x9050,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x8001, MemHandler]]
-		['L',		0x9000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0002, MemHandler]]
-		['L',		0x9008,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0102, MemHandler]]
-		['L',		0xd000,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0253, MemHandler]]
-		['L',		0xd040,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0254, MemHandler]]
-		['L',		0x9010,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0100, MemHandler]]
-		['L',		0x9034,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0x3001, MemHandler]]
-		['L',		0x9054,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0xB001, MemHandler]]
-		['L',		0x9036,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0x7001, MemHandler]]
-		['L',		0x9056,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0xF001, MemHandler]]
+		['L',		0x9032,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1001, MemHandler]],
+		['L',		0x9052,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x9001, MemHandler]],
+		['L',		0x9002,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1002, MemHandler]],
+		['L',		0xa008,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1102, MemHandler]],
+		['L',		0xb000,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1253, MemHandler]],
+		['L',		0xb040,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1254, MemHandler]],
+		['L',		0x9012,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1100, MemHandler]],
+		['L',		0x9030,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0001, MemHandler]],
+		['L',		0x9050,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x8001, MemHandler]],
+		['L',		0x9000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0002, MemHandler]],
+		['L',		0x9008,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0102, MemHandler]],
+		['L',		0xd000,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0253, MemHandler]],
+		['L',		0xd040,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0254, MemHandler]],
+		['L',		0x9010,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0100, MemHandler]],
+		['L',		0x9034,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0x3001, MemHandler]],
+		['L',		0x9054,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0xB001, MemHandler]],
+		['L',		0x9036,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0x7001, MemHandler]],
+		['L',		0x9056,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0xF001, MemHandler]],
 
-		['ST',		0x9033,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1001, MemHandler]]
-		['ST',		0x9053,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x9001, MemHandler]]
-		['ST',		0x9003,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1002, MemHandler]]
-		['ST',		0xa009,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1102, MemHandler]]
-		['ST',		0xb080,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1253, MemHandler]]
-		['ST',		0xb0c0,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1254, MemHandler]]
-		['ST',		0x9013,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1100, MemHandler]]
-		['ST',		0x9031,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0001, MemHandler]]
-		['ST',		0x9051,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x8001, MemHandler]]
-		['ST',		0x9001,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0002, MemHandler]]
-		['ST',		0x9009,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0102, MemHandler]]
-		['ST',		0xd080,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0253, MemHandler]]
-		['ST',		0xd0c0,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0254, MemHandler]]
-		['ST',		0x9011,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0100, MemHandler]]
-		['ST',		0x9035,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0x3001, MemHandler]]
-		['ST',		0x9055,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0xB001, MemHandler]]
-		['ST',		0x9037,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0x7001, MemHandler]]
-		['ST',		0x9057,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0xF001, MemHandler]]
+		['ST',		0x9033,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1001, MemHandler]],
+		['ST',		0x9053,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x9001, MemHandler]],
+		['ST',		0x9003,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1002, MemHandler]],
+		['ST',		0xa009,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x1102, MemHandler]],
+		['ST',		0xb080,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1253, MemHandler]],
+		['ST',		0xb0c0,	[0x0e00, 8,  0x0002, RegHandler],		[0x003f, 0,  0x1254, MemHandler]],
+		['ST',		0x9013,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1100, MemHandler]],
+		['ST',		0x9031,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0001, MemHandler]],
+		['ST',		0x9051,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x8001, MemHandler]],
+		['ST',		0x9001,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0002, MemHandler]],
+		['ST',		0x9009,	[0x0f00, 8,  0x0001, RegHandler],		[0x00e0, 4,  0x0102, MemHandler]],
+		['ST',		0xd080,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0253, MemHandler]],
+		['ST',		0xd0c0,	[0x0f00, 8,  0x0001, RegHandler],		[0x003f, 0,  0x0254, MemHandler]],
+		['ST',		0x9011,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0100, MemHandler]],
+		['ST',		0x9035,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0x3001, MemHandler]],
+		['ST',		0x9055,	[0x0c00, 8,  0x0004, RegHandler],		[0x0000, 0,  0xB001, MemHandler]],
+		['ST',		0x9037,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0x7001, MemHandler]],
+		['ST',		0x9057,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0xF001, MemHandler]],
 
 		# Control RegHandler Access Instructions
-		['ADD',		0xe100,	[0x0000, 0,  0x0024, RegCtrlHandler],	[0x00ff, 0,  0x0007, NumHandler]]
-		['MOV',		0xa00f,	[0x0000, 0,  0x0010, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]]
-		['MOV',		0xa00d,	[0x0000, 0,  0x0021, RegCtrlHandler],	[0x0f00, 8,  0x0002, RegHandler]]
-		['MOV',		0xa00c,	[0x0000, 0,  0x0013, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]]
-		['MOV',		0xa005,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x0021, RegCtrlHandler]]
-		['MOV',		0xa01a,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x0024, RegCtrlHandler]]
-		['MOV',		0xa00b,	[0x0000, 0,  0x0012, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]]
-		['MOV',		0xe900,	[0x0000, 0,  0x0012, RegCtrlHandler],	[0x00ff, 0,  0x0008, NumHandler]]
-		['MOV',		0xa007,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0010, RegCtrlHandler]]
-		['MOV',		0xa004,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0013, RegCtrlHandler]]
-		['MOV',		0xa003,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0012, RegCtrlHandler]]
-		['MOV',		0xa10a,	[0x0000, 0,  0x0024, RegCtrlHandler],	[0x00e0, 4,  0x0002, RegHandler]]
+		['ADD',		0xe100,	[0x0000, 0,  0x0024, RegCtrlHandler],	[0x00ff, 0,  0x0007, NumHandler]],
+		['MOV',		0xa00f,	[0x0000, 0,  0x0010, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]],
+		['MOV',		0xa00d,	[0x0000, 0,  0x0021, RegCtrlHandler],	[0x0f00, 8,  0x0002, RegHandler]],
+		['MOV',		0xa00c,	[0x0000, 0,  0x0013, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]],
+		['MOV',		0xa005,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x0021, RegCtrlHandler]],
+		['MOV',		0xa01a,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x0024, RegCtrlHandler]],
+		['MOV',		0xa00b,	[0x0000, 0,  0x0012, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]],
+		['MOV',		0xe900,	[0x0000, 0,  0x0012, RegCtrlHandler],	[0x00ff, 0,  0x0008, NumHandler]],
+		['MOV',		0xa007,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0010, RegCtrlHandler]],
+		['MOV',		0xa004,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0013, RegCtrlHandler]],
+		['MOV',		0xa003,	[0x0f00, 8,  0x0001, RegHandler],		[0x0000, 0,  0x0012, RegCtrlHandler]],
+		['MOV',		0xa10a,	[0x0000, 0,  0x0024, RegCtrlHandler],	[0x00e0, 4,  0x0002, RegHandler]],
 
 		# Push/Pop Instructions
-		['PUSH',	0xf05e,	[0x0e00, 8,  0x0002, RegHandler],		None]
-		['PUSH',	0xf07e,	[0x0800, 8,  0x0008, RegHandler],		None]
-		['PUSH',	0xf04e,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['PUSH',	0xf06e,	[0x0c00, 8,  0x0004, RegHandler],		None]
-		['PUSH',	0xf0ce,	[0x0f00, 8,  0x0008, NumHandler],		None]
-		['POP',		0xf01e,	[0x0e00, 8,  0x0002, RegHandler],		None]
-		['POP',		0xf03e,	[0x0800, 8,  0x0008, RegHandler],		None]
-		['POP',		0xf00e,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['POP',		0xf02e,	[0x0c00, 8,  0x0004, RegHandler],		None]
-		['POP',		0xf08e,	[0x0f00, 8,  0x0008, NumHandler],		None]
+		['PUSH',	0xf05e,	[0x0e00, 8,  0x0002, RegHandler],		None],
+		['PUSH',	0xf07e,	[0x0800, 8,  0x0008, RegHandler],		None],
+		['PUSH',	0xf04e,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['PUSH',	0xf06e,	[0x0c00, 8,  0x0004, RegHandler],		None],
+		['PUSH',	0xf0ce,	[0x0f00, 8,  0x0008, NumHandler],		None],
+		['POP',		0xf01e,	[0x0e00, 8,  0x0002, RegHandler],		None],
+		['POP',		0xf03e,	[0x0800, 8,  0x0008, RegHandler],		None],
+		['POP',		0xf00e,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['POP',		0xf02e,	[0x0c00, 8,  0x0004, RegHandler],		None],
+		['POP',		0xf08e,	[0x0f00, 8,  0x0008, NumHandler],		None],
 
 		# TODO: Coprocessor Instructions
 
 		# EA RegHandler Data Transfer Instructions
-		['LEA',		0xf00a,	[0x00e0, 4,  0x0002, MemHandler],		None]
-		['LEA',		0xf00b,	[0x00e0, 4,  0x0102, MemHandler],		None]
-		['LEA',		0xf00c,	[0x0000, 0,  0x0100, MemHandler],		None]
+		['LEA',		0xf00a,	[0x00e0, 4,  0x0002, MemHandler],		None],
+		['LEA',		0xf00b,	[0x00e0, 4,  0x0102, MemHandler],		None],
+		['LEA',		0xf00c,	[0x0000, 0,  0x0100, MemHandler],		None],
 
 		# ALU Instructions
-		['DAA',		0x801f,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['DAS',		0x803f,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['NEG',		0x805f,	[0x0f00, 8,  0x0001, RegHandler],		None]
+		['DAA',		0x801f,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['DAS',		0x803f,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['NEG',		0x805f,	[0x0f00, 8,  0x0001, RegHandler],		None],
 
 		# Bit Access Instructions
-		['SB',		0xa000,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['SB',		0xa080,	[0x0000, 0,  0x0100, MemHandler],		None]
-		['RB',		0xa002,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['RB',		0xa082,	[0x0000, 0,  0x0100, MemHandler],		None]
-		['TB',		0xa001,	[0x0f00, 8,  0x0001, RegHandler],		None]
-		['TB',		0xa081,	[0x0000, 0,  0x0100, MemHandler],		None]
+		['SB',		0xa000,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['SB',		0xa080,	[0x0000, 0,  0x0100, MemHandler],		None],
+		['RB',		0xa002,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['RB',		0xa082,	[0x0000, 0,  0x0100, MemHandler],		None],
+		['TB',		0xa001,	[0x0f00, 8,  0x0001, RegHandler],		None],
+		['TB',		0xa081,	[0x0000, 0,  0x0100, MemHandler],		None],
 
 		# PSW Access Instructions
-		['EI',		0xed08,	None,						None]
-		['DI',		0xebf7,	None,						None]
-		['SC',		0xed80,	None,						None]
-		['RC',		0xeb7f,	None,						None]
-		['CPLC',	0xfecf,	None,						None]
+		['EI',		0xed08,	None,						None],
+		['DI',		0xebf7,	None,						None],
+		['SC',		0xed80,	None,						None],
+		['RC',		0xeb7f,	None,						None],
+		['CPLC',	0xfecf,	None,						None],
 
 		# Conditional Relative Branch Instructions
-		['BC',		0xc000,	[0x0f00, 8,	 0x0000, CondHandler],		[0x00ff, 0,  0x0007, NumHandler]]
+		['BC',		0xc000,	[0x0f00, 8,	 0x0000, CondHandler],		[0x00ff, 0,  0x0007, NumHandler]],
 
 		# Sign Extension Instruction
-		['EXTBW',	0x810f,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]]
+		['EXTBW',	0x810f,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]],
 
 		# Software Interrupt Instructions
-		['SWI',		0xe500,	[0x003f, 0,  0x0008, NumHandler],		None]
-		['BRK',		0xffff,	None,						None]
+		['SWI',		0xe500,	[0x003f, 0,  0x0008, NumHandler],		None],
+		['BRK',		0xffff,	None,						None],
 
 		# Branch Instructions
-		['B',		0xf000,	[0x0f00, 8,  0x0004, NumHandler],		[0x0000, 0,  0x0100, MemHandler]]
-		['B',		0xf002,	[0x00e0, 4,  0x0002, MemHandler]]
-		['BL',		0xf001,	[0x0f00, 8,  0x0004, NumHandler],		[0x0000, 0,  0x0100, MemHandler]]
-		['BL',		0xf003,	[0x00e0, 4,  0x0002, MemHandler]]
+		['B',		0xf000,	[0x0f00, 8,  0x0004, NumHandler],		[0x0000, 0,  0x0100, MemHandler]],
+		['B',		0xf002,	[0x00e0, 4,  0x0002, MemHandler]],
+		['BL',		0xf001,	[0x0f00, 8,  0x0004, NumHandler],		[0x0000, 0,  0x0100, MemHandler]],
+		['BL',		0xf003,	[0x00e0, 4,  0x0002, MemHandler]],
 
 		# Multiplication and Division Instructions
-		['MUL',		0xf004,	[0x0e00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
-		['DIV',		0xf009,	[0x0e00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]]
+		['MUL',		0xf004,	[0x0e00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['DIV',		0xf009,	[0x0e00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 
 		# Miscellaneous Instructions
-		['INC',		0xfe2f,	[0x0000, 0,  0x0001, MemHandler],		None]
-		['DEC',		0xfe3f,	[0x0000, 0,  0x0001, MemHandler],		None]
-		['RT',		0xfe1f,	None,						None]
-		['RTI',		0xfe0f,	None,						None]
-		['NOP',		0xfe8f,	None,						None]
+		['INC',		0xfe2f,	[0x0000, 0,  0x0001, MemHandler],		None],
+		['DEC',		0xfe3f,	[0x0000, 0,  0x0001, MemHandler],		None],
+		['RT',		0xfe1f,	None,						None],
+		['RTI',		0xfe0f,	None,						None],
+		['NOP',		0xfe8f,	None,						None],
 	]
 
-	def __setattr__(self, name, value): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
+	def __init__(self, code_bytes):
+		self.code = {}
+		
+		self.__code_bytes = code_bytes
+		self.__pc = 0
+		self.__queue = []
 
-	def __init__(self, labels = [], data_labels = [], data_bit_labels = []):
-		pass
+	def disassemble(self):
+		self.__queue.append(self.read_word(2))
+		instr = None
+		prev_instr = None
+		dsr_src = None
+
+		while len(self.__queue) > 0:
+			self.__pc = self.__queue.pop()
+			instr_bytes = self.fetch()
+			_instr = self.decode(instr_bytes)
+			instr = [_instr[0]]
+			try:
+				if _instr[2] is not None: instr.append(_instr[2][3](_instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1]))
+				if _instr[3] is not None: instr.append(_instr[3][3](_instr[3][2], (instr_bytes & _instr[3][0]) >> _instr[3][1]))
+			except RuntimeError: instr = ['DW', Num(16, instr_bytes)]
+
+			print(f'PC: {self.__pc-2:05X} - Word: {instr_bytes:04X}')
+			print(instr)
+
+
+
+	def read_word(self, addr):
+		return (self.__code_bytes[addr+1] << 8) | self.__code_bytes[addr]
+
+	def fetch(self):
+		a = self.read_word(self.__pc)
+		self.__pc += 2
+		return a
+
+	def decode(self, instr):
+		for _instr in self.__instrs:
+			mask = 0
+			if _instr[2] is not None: mask |= _instr[2][0]
+			if _instr[3] is not None: mask |= _instr[3][0]
+			mask ^= 0xffff
+
+			if instr & mask == _instr[1]: return _instr
+
+		raise RuntimeError
+
+	def __repr__(self): return f'{type(self).__name__}(code_bytes=...)'
