@@ -49,17 +49,20 @@ class Num:
 
 	def __repr__(self): return f'{type(self).__name__}(bits={self.bits}, value={self.value}, disp={numdisp(self.disp).name})'
 	def __str__(self):
-		value = self.value - (self.value >> (bits - 1)) * (2**bits) if self.sign else self.value
-		if self.disp == numdisp.HEX: return f'#{value:X}H'
-		elif self.disp == numdisp.DEC: return f'#{value}'
-		elif self.disp == numdisp.OCT: return f'#{value:o}O'
-		elif self.disp == numdisp.BIN: return f'#{value:b}B'
+		value = self.value - (self.value >> (self.bits - 1)) * (2**self.bits) if self.sign else self.value
+		if self.disp == numdisp.HEX: string = f'{value:X}H'
+		elif self.disp == numdisp.DEC: string = f'{value}'
+		elif self.disp == numdisp.OCT: string = f'{value:o}O'
+		elif self.disp == numdisp.BIN: string = f'{value:b}B'
+		return '#' + ('' if string[0].isnumeric() or (string[0] == '-' and string[1].isnumeric()) else '0') + string
 	def __setattr__(self, name, value):
 		if name in ('bits', 'value'): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
 		else: super().__setattr__(name, value)
 
 def RegHandler(flags, value): return Register(flags, value)
+
 def NumHandler(flags, value): return Num(flags, value)
+
 def RegCtrlHandler(flags, value):
 	if flags == 0: return 'ECSR'
 	elif flags == 1: return 'ELR'
@@ -67,11 +70,16 @@ def RegCtrlHandler(flags, value):
 	elif flags == 3: return 'EPSW'
 	elif flags == 4: return 'SP'
 	elif flags == 6: return 'DSR'
+
 def MemHandler(flags, value):
 	s = (flags >> 12) & 0xf
 	d = (flags >> 8) & 0xf
 	e = (flags >> 4) & 0xf
 	r = flags & 0xf
+
+	if s & 8 and r == 1: return '[EA+]'
+
+
 def CondHandler(flags, value):
 	if value == 0: return 'GE'
 	elif value == 1: return 'LT'
@@ -93,9 +101,9 @@ def CondHandler(flags, value):
 
 class Disassembly:
 	__instrs_dsr = [
-		['DSR', 0xe300, [0x00ff, 0,  0x0008, NumHandler]],
-		['DSR', 0x900f, [0x00f0, 4,  0x0001, RegHandler]],
-		['DSR', 0xfe9f, None],
+		[None, 0xe300, [0x00ff, 0,  0x0008, NumHandler]],
+		[None, 0x900f, [0x00f0, 4,  0x0001, RegHandler]],
+		[None, 0xfe9f, [0x0000, 0,  0x0006, RegCtrlHandler]],
 	]
 
 	__instrs = [
@@ -224,19 +232,19 @@ class Disassembly:
 		['NEG',		0x805f,	[0x0f00, 8,  0x0001, RegHandler],		None],
 
 		# Bit Access Instructions
-		['SB',		0xa000,	[0x0f00, 8,  0x0001, RegHandler],		None],
-		['SB',		0xa080,	[0x0000, 0,  0x0100, MemHandler],		None],
-		['RB',		0xa002,	[0x0f00, 8,  0x0001, RegHandler],		None],
-		['RB',		0xa082,	[0x0000, 0,  0x0100, MemHandler],		None],
-		['TB',		0xa001,	[0x0f00, 8,  0x0001, RegHandler],		None],
-		['TB',		0xa081,	[0x0000, 0,  0x0100, MemHandler],		None],
+		['SB',		0xa000,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['SB',		0xa080,	[0x0000, 0,  0x0100, MemHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['RB',		0xa002,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['RB',		0xa082,	[0x0000, 0,  0x0100, MemHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['TB',		0xa001,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['TB',		0xa081,	[0x0000, 0,  0x0100, MemHandler],		[0x0070, 4,  0x0003, NumHandler]],
 
 		# PSW Access Instructions
-		['EI',		0xed08,	None,						None],
-		['DI',		0xebf7,	None,						None],
-		['SC',		0xed80,	None,						None],
-		['RC',		0xeb7f,	None,						None],
-		['CPLC',	0xfecf,	None,						None],
+		['EI',		0xed08,	None,									None],
+		['DI',		0xebf7,	None,									None],
+		['SC',		0xed80,	None,									None],
+		['RC',		0xeb7f,	None,									None],
+		['CPLC',	0xfecf,	None,									None],
 
 		# Conditional Relative Branch Instructions
 		['BC',		0xc000,	[0x0f00, 8,	 0x0000, CondHandler],		[0x00ff, 0,  0x0007, NumHandler]],
@@ -246,13 +254,13 @@ class Disassembly:
 
 		# Software Interrupt Instructions
 		['SWI',		0xe500,	[0x003f, 0,  0x0008, NumHandler],		None],
-		['BRK',		0xffff,	None,						None],
+		['BRK',		0xffff,	None,									None],
 
 		# Branch Instructions
 		['B',		0xf000,	[0x0f00, 8,  0x0004, NumHandler],		[0x0000, 0,  0x0100, MemHandler]],
-		['B',		0xf002,	[0x00e0, 4,  0x0002, MemHandler]],
+		['B',		0xf002,	[0x00e0, 4,  0x0002, MemHandler],		None],
 		['BL',		0xf001,	[0x0f00, 8,  0x0004, NumHandler],		[0x0000, 0,  0x0100, MemHandler]],
-		['BL',		0xf003,	[0x00e0, 4,  0x0002, MemHandler]],
+		['BL',		0xf003,	[0x00e0, 4,  0x0002, MemHandler],		None],
 
 		# Multiplication and Division Instructions
 		['MUL',		0xf004,	[0x0e00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
@@ -261,9 +269,14 @@ class Disassembly:
 		# Miscellaneous Instructions
 		['INC',		0xfe2f,	[0x0000, 0,  0x0001, MemHandler],		None],
 		['DEC',		0xfe3f,	[0x0000, 0,  0x0001, MemHandler],		None],
-		['RT',		0xfe1f,	None,						None],
-		['RTI',		0xfe0f,	None,						None],
-		['NOP',		0xfe8f,	None,						None],
+		['RT',		0xfe1f,	None,									None],
+		['RTI',		0xfe0f,	None,									None],
+		['NOP',		0xfe8f,	None,									None],
+
+		# Internal Instructions (undocumented)
+		['RTICE',	0xfe6f,	None,									None],  # RTI for emulator software interrupt handler
+		['RTICEPSW',0xfe7f,	None,									None],  # Equivalent to POP PSW; RTICE?
+		['ICESWI',	0xfeff,	None,									None],  # Triggers emulator software interrupt
 	]
 
 	def __init__(self, code_bytes):
@@ -278,21 +291,42 @@ class Disassembly:
 		instr = None
 		prev_instr = None
 		dsr_src = None
+		instrl = []
 
 		while len(self.__queue) > 0:
+			prev_instr = instr
+
 			self.__pc = self.__queue.pop()
+			ins_len = 2
 			instr_bytes = self.fetch()
-			_instr = self.decode(instr_bytes)
-			instr = [_instr[0]]
+			instrl.append(instr_bytes)
 			try:
-				if _instr[2] is not None: instr.append(_instr[2][3](_instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1]))
-				if _instr[3] is not None: instr.append(_instr[3][3](_instr[3][2], (instr_bytes & _instr[3][0]) >> _instr[3][1]))
+				_instr, dsr = self.decode(instr_bytes)
+				if dsr:
+					if _instr[2][3] == RegCtrlHandler: instr = ['EDSR']
+					else: instr = ['DW', Num(16, instr_bytes)]
+					dsr_src = _instr[2][3](_instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1])
+					self.__queue.append(self.__pc)
+					continue
+				else:
+					instr = [_instr[0]]
+					if _instr[2] is not None: instr.append(_instr[2][3](_instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1]))
+					if _instr[3] is not None: instr.append(_instr[3][3](_instr[3][2], (instr_bytes & _instr[3][0]) >> _instr[3][1]))
+					if len(instr) > 1 and type(instr[-1]) == str and _instr[-1][3] == MemHandler and dsr_src is not None:
+						instr[-1] = f'{dsr_src}:{instr[-1]}'
+						dsr_src = None
+						ins_len += 2
 			except RuntimeError: instr = ['DW', Num(16, instr_bytes)]
 
-			print(f'PC: {self.__pc-2:05X} - Word: {instr_bytes:04X}')
-			print(instr)
+			tab = '\t'
+			string = f'{self.__pc-ins_len >> 16:X}:{self.__pc-ins_len  & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
+			if len(instr) >= 2: string += f' {instr[1]}'
+			if len(instr) == 3: string += f', {instr[2]}'
+			print(string)
+			self.code[self.__pc-ins_len] = instr
 
-
+			instrl = []
+			if instr[0] != 'B': self.__queue.append(self.__pc)
 
 	def read_word(self, addr):
 		return (self.__code_bytes[addr+1] << 8) | self.__code_bytes[addr]
@@ -303,13 +337,20 @@ class Disassembly:
 		return a
 
 	def decode(self, instr):
+		for _instr in self.__instrs_dsr:
+			mask = 0
+			if _instr[2] is not None: mask |= _instr[2][0]
+			mask ^= 0xffff
+
+			if instr & mask == _instr[1]: return _instr, True
+
 		for _instr in self.__instrs:
 			mask = 0
 			if _instr[2] is not None: mask |= _instr[2][0]
 			if _instr[3] is not None: mask |= _instr[3][0]
 			mask ^= 0xffff
 
-			if instr & mask == _instr[1]: return _instr
+			if instr & mask == _instr[1]: return _instr, False
 
 		raise RuntimeError
 

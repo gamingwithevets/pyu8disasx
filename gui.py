@@ -410,7 +410,7 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		"""
 
 		ttk.Label(text='Coming soon!', font=self.bold_font).pack()
-		ttk.Label(text='PyU8disasX\'s GUI interface is not being worked on at the moment.\nIn the meantime, you can always use the provided module. (see README for details)').pack()
+		ttk.Label(text='PyU8disasX\'s GUI interface is not being worked on at the moment.\nIn the meantime, you can always use the provided module. (see README for details)', justify = 'center').pack()
 
 		self.set_title()
 		self.window.mainloop()
