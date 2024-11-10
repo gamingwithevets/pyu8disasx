@@ -3,21 +3,20 @@ if __name__ == '__main__':
 	print('This script cannot be run normally.')
 	sys.exit()
 
-from enum import IntEnum, auto
+from enum import IntEnum
 import math
 
 def conv_sign(value, bits): return value - (value >> (bits - 1)) * (2**bits)
 
 class numdisp(IntEnum):
 	HEX = 0
-	DEC = auto()
-	OCT = auto()
-	BIN = auto()
+	DEC = 1
+	OCT = 2
+	BIN = 3
 
 class labeltype(IntEnum):
 	FUN = 0
-	LAB = auto()
-	DAT = auto()
+	LAB = 1
 
 class Register:
 	__reg_prefixes = {1: 'R', 2: 'ER', 4: 'XR', 8: 'QR'}
@@ -107,6 +106,17 @@ class DSRPrefix:
 
 	def __repr__(self): return f'{type(self).__name__}(dsr={self.dsr}, item={self.item})'
 	def __str__(self): return f'{self.dsr}:{self.item}'
+
+class BitOffset:
+	__slots__ = ('item', 'bit')
+	def __init__(self, item, bit):
+		if type(item) not in (Register, Address): raise TypeError("'dsr' argument must be of type Register or Address")
+		elif type(bit) != int: raise TypeError("'bit' argument must be of type int")
+		super().__setattr__('item', item)
+		super().__setattr__('bit', bit & 7)
+
+	def __repr__(self): return f'{type(self).__name__}(item={self.item}, bit={self.bit})'
+	def __str__(self): return f'{self.item}.{self.bit}'
 
 def RegHandler(self, flags, value): return Register(flags & 0xf, value)
 
@@ -340,7 +350,7 @@ class Disassembly:
 		['B',		0xf000,	[0x0f00, 8,  0x0004, CadrHandler],		None],
 		['B',		0xf002,	[0x00e0, 4,  0x0002, RegHandler],		None],
 		['BL',		0xf001,	[0x0f00, 8,  0x0004, CadrHandler],		None],
-		['BL',		0xf003,	[0x00e0, 4,  0x0002, MemHandler],		None],
+		['BL',		0xf003,	[0x00e0, 4,  0x0002, RegHandler],		None],
 
 		# Multiplication and Division Instructions
 		['MUL',		0xf004,	[0x0e00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
@@ -365,15 +375,23 @@ class Disassembly:
 
 		self.code = {}
 		self.labels = {}
+		self.data_labels = {}
 		
 		self.__code_bytes = code_bytes
 		self.pc = 0
 		self.__queue = []
 		self.__instrl = []
 
+		self.__disas = False
+
 	def disassemble(self):
-		self.labels[self.read_word(2)] = [labeltype.FUN, 'start']
-		self.__queue.append(self.read_word(2))
+		if not self.__disas:
+			self.labels[self.read_word(2)] = [labeltype.FUN, 'start']
+			self.labels[self.read_word(4)] = [labeltype.FUN, 'brk']
+			self.queue_add(self.read_word(4))
+			self.queue_add(self.read_word(2))
+		else: self.__disas = True
+
 		instr = None
 		prev_instr = None
 		dsr_src = None
@@ -396,28 +414,36 @@ class Disassembly:
 					instr = [_instr[0]]
 					if _instr[2] is not None: instr.append(_instr[2][3](self, _instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1]))
 					if _instr[3] is not None: instr.append(_instr[3][3](self, _instr[3][2], (instr_bytes & _instr[3][0]) >> _instr[3][1]))
+					if instr[0] in ('SB', 'TB', 'RB'): instr[1] = BitOffset(instr[1], instr[2].value); instr.pop(2)
 					if len(instr) > 1 and type(instr[-1]) in (Address, Pointer) and _instr[len(instr)][3] == MemHandler and dsr_src is not None:
 						instr[-1] = DSRPrefix(dsr_src, instr[-1])
 						dsr_src = None
+					if len(instr) > 1 and instr[0] in ('L', 'ST', 'SB', 'TB', 'RB'):
+						if type(instr[-1]) == Address: self.data_labels[instr[-1].addr] = f'd_{instr[-1].addr:05X}'
+						elif type(instr[-1]) == DSRPrefix and type(instr[-1].dsr) == Num and type(instr[-1].item) == Address:
+							addr = (instr[-1].dsr.value << 16) | instr[-1].item.addr
+							self.data_labels[addr] = f'd_{addr:05X}'
+						elif type(instr[-1]) == BitOffset and type(instr[-1].item) == Address:
+							self.data_labels[instr[-1].item] = f'd_{instr[-1].item.addr:05X}'
 			except RuntimeError: instr = ['DW', Num(16, instr_bytes, False)]
 
 			ins_len = len(self.__instrl)*2
 			if dsr_src is None: self.code[self.pc-ins_len] = [self.__instrl, instr]
 			else:
 				self.code[self.pc-ins_len] = [[self.__instrl[0]], prev_instr]
-				self.code[self.pc-ins_len+2] = [self.__instrl[1:], prev_instr]
+				self.code[self.pc-ins_len+2] = [self.__instrl[1:], instr]
 				dsr_src = None
 
 			self.__instrl = []
 			
 			if (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
 				radr = (instr[-1].seg << 16) | instr[-1].addr
-				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'LAB_{radr:05X}']
+				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'_$j_{radr:05X}']
 				self.queue_add(radr)
 				if instr[0] == 'BC' and instr[1] != 'AL': self.queue_add(self.pc)
 			elif instr[0] == 'BL' and type(instr[1]) == Address:
 				cadr = (instr[-1].seg << 16) | instr[-1].addr
-				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'FUN_{cadr:05X}']
+				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'_f_{cadr:05X}']
 				self.queue_add(self.pc)
 				self.queue_add(cadr)
 			elif instr[0] == 'RT' or instr[0] == 'RTI': pass
