@@ -1,10 +1,9 @@
 # Coming soon!
 **PyU8disasX** is an upcoming nX-U8/100 / nX-U16/100 disassembler, and will be an upgraded rewritten version of [PyU8disas](https://github.com/gamingwithevets/pyu8disas).
-Currently, the actual GUI application is not being worked on, however you can use the WIP module `disas.py`! See below for documentation.
 
 # Usage
 ## GUI interface
-Nope! Not yet.
+As of now, the GUI interface is in a test state, meaning you will need a ROM to test. The result will be a generic disassembly listing. The speed of the viewer will depend on your computer's speed as well as the size of the disassembly.
 
 ## Module (`disas.py`)
 In its current state, the module is still very experimental and unfinished. The documentation below does not include everything at the moment.

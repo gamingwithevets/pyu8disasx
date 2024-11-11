@@ -18,8 +18,8 @@ try:
 except AttributeError:
 	temp_path = os.getcwd()
 
-# TODO: add more main modules here
 import json
+import disas
 import urllib.request
 import threading
 import webbrowser
@@ -33,7 +33,7 @@ repo_name = 'pyu8disasx'  # GitHub repository name here
 
 version = '0.0.1'  # displayed version (e.g. 1.0.0 Prerelease - must match GH release title)
 internal_version = 'v0.0.1'  # internal version (must match GitHub release tag)
-prerelease = False  # prerelease flag (must match GitHub release's prerelease flag)
+prerelease = True  # prerelease flag (must match GitHub release's prerelease flag)
 
 
 def report_error(self=None, exc=None, val=None, tb=None, term=True):
@@ -409,10 +409,47 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		Where the mainloop is called.
 		"""
 
-		ttk.Label(text='Coming soon!', font=self.bold_font).pack()
-		ttk.Label(text='PyU8disasX\'s GUI interface is not being worked on at the moment.\nIn the meantime, you can always use the provided module. (see README for details)', justify = 'center').pack()
+		def process_ins_param(param):
+			if type(param) == list: return ', '.join(instr[1])
+			elif type(param) == disas.Address:
+				if param.seg is None:
+					if param.addr in dis.data_labels: return dis.data_labels[param.addr]
+				else:
+					addr = (param.seg << 16) | param.addr
+					if addr in dis.labels: return dis.labels[addr][1]
+			elif type(param) == disas.DSRPrefix:
+				if type(param.dsr) == disas.Num and type(param.item) == disas.Address:
+					addr = (param.dsr.value << 16) | param.item.addr
+					if addr in dis.data_labels: return dis.data_labels[addr]
+
+			return str(param)
+
+		ttk.Label(text='Test', font=self.bold_font).pack()
+		frame = VerticalScrolledFrame(self.window)
+		frame.pack(fill = 'both', expand = True)
+		text = ''
+
+		with open('rom.bin', 'rb') as f: dis = disas.Disassembly(f.read())
+		print('Disassembling')
+		dis.disassemble()
+		for addr, ins in dis.code.items():
+			if addr in dis.labels:
+				if dis.labels[addr][0] == disas.labeltype.FUN: text += '\n'
+				text += dis.labels[addr][1] + ':\n'
+			instrl = ins[0]
+			instr = ins[1]
+			tab = '\t'
+			string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
+			if len(instr) >= 2: string += ' ' + process_ins_param(instr[1])
+			if len(instr) == 3: string += ', ' + process_ins_param(instr[2])
+			text += string + '\n'
+		
+		print(f'Adding [{len(text.split('\n'))}] labels')
+		for a in text.split('\n'): ttk.Label(frame.interior, text = a, font = 'TkFixedFont').pack(anchor = 'w', fill = 'x')
+		print('Done!')
 
 		self.set_title()
+		print('Running mainloop.')
 		self.window.mainloop()
 
 
@@ -768,6 +805,35 @@ class Updater:
 				'nowifi': False
 			}
 
+
+# https://stackoverflow.com/a/16198198
+class VerticalScrolledFrame(tk.Frame):
+	def __init__(self, parent, *args, **kw):
+		tk.Frame.__init__(self, parent, *args, **kw)
+
+		vscrollbar = tk.Scrollbar(self, orient = 'vertical')
+		vscrollbar.pack(fill = 'y', side = 'right')
+		canvas = tk.Canvas(self, bd = 0, highlightthickness = 0, yscrollcommand = vscrollbar.set)
+		canvas.pack(side = 'left', fill = 'both', expand = True)
+		vscrollbar.config(command = canvas.yview)
+
+		canvas.xview_moveto(0)
+		canvas.yview_moveto(0)
+
+		self.interior = interior = tk.Frame(canvas)
+		interior_id = canvas.create_window(0, 0, window = interior, anchor = 'nw')
+
+		def _configure_interior(event):
+			size = (interior.winfo_reqwidth(), interior.winfo_reqheight())
+			canvas.config(scrollregion = '0 0 %s %s' % size)
+			if interior.winfo_reqwidth() != canvas.winfo_width():
+				canvas.config(width=interior.winfo_reqwidth())
+		interior.bind('<Configure>', _configure_interior)
+
+		def _configure_canvas(event):
+			if interior.winfo_reqwidth() != canvas.winfo_width():
+				canvas.itemconfigure(interior_id, width=canvas.winfo_width())
+		canvas.bind('<Configure>', _configure_canvas)
 
 # https://stackoverflow.com/a/65447493
 class ThreadWithResult(threading.Thread):
