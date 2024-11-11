@@ -58,6 +58,21 @@ https://github.com/{username}/{repo_name}/issues\
 	if term:
 		sys.exit()
 
+def process_ins_param(param):
+	if type(param) == list: return ', '.join(instr[1])
+	elif type(param) == disas.Address:
+		if param.seg is None:
+			if param.addr in dis.data_labels: return dis.data_labels[param.addr]
+		else:
+			addr = (param.seg << 16) | param.addr
+			if addr in dis.labels: return dis.labels[addr][1]
+	elif type(param) == disas.DSRPrefix:
+		if type(param.dsr) == disas.Num and type(param.item) == disas.Address:
+			addr = (param.dsr.value << 16) | param.item.addr
+			if addr in dis.data_labels: return dis.data_labels[addr]
+
+	return str(param)
+
 
 tk.Tk.report_callback_exception = report_error
 
@@ -409,28 +424,19 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		Where the mainloop is called.
 		"""
 
-		def process_ins_param(param):
-			if type(param) == list: return ', '.join(instr[1])
-			elif type(param) == disas.Address:
-				if param.seg is None:
-					if param.addr in dis.data_labels: return dis.data_labels[param.addr]
-				else:
-					addr = (param.seg << 16) | param.addr
-					if addr in dis.labels: return dis.labels[addr][1]
-			elif type(param) == disas.DSRPrefix:
-				if type(param.dsr) == disas.Num and type(param.item) == disas.Address:
-					addr = (param.dsr.value << 16) | param.item.addr
-					if addr in dis.data_labels: return dis.data_labels[addr]
-
-			return str(param)
-
 		ttk.Label(text='Test', font=self.bold_font).pack()
-		frame = VerticalScrolledFrame(self.window)
+		canvas = tk.Canvas()
+		canvas.pack(side = 'left', fill = 'both', expand = True)
+		scrollbar = ttk.Scrollbar(orient = 'vertical', command = canvas.yview)
+		scrollbar.pack(side = 'right', fill = 'y')
+		canvas.configure(yscrollcommand = scrollbar.set)
+
+		frame = tk.Frame(canvas)
 		frame.pack(fill = 'both', expand = True)
+		canvas.create_window((0, 0), window = frame, anchor = 'nw')
 		text = ''
 
 		with open('rom.bin', 'rb') as f: dis = disas.Disassembly(f.read())
-		print('Disassembling')
 		dis.disassemble()
 		for addr, ins in dis.code.items():
 			if addr in dis.labels:
@@ -444,12 +450,18 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 			if len(instr) == 3: string += ', ' + process_ins_param(instr[2])
 			text += string + '\n'
 		
-		print(f'Adding [{len(text.split('\n'))}] labels')
-		for a in text.split('\n'): ttk.Label(frame.interior, text = a, font = 'TkFixedFont').pack(anchor = 'w', fill = 'x')
-		print('Done!')
+		y = 0
+		for a in text.split('\n'):
+			label = ttk.Label(frame, text = a, font = 'TkFixedFont')
+			label.pack(anchor = 'w', fill = 'x')
+			y += label.winfo_reqheight()
+			if y + label.winfo_reqheight() > 32767:
+				frame = tk.Frame(canvas)
+				frame.pack(fill = 'both', expand = True)
+				canvas.create_window((0, y), window = frame, anchor = 'nw')
+		canvas.config(scrollregion = canvas.bbox('all'))
 
 		self.set_title()
-		print('Running mainloop.')
 		self.window.mainloop()
 
 
@@ -804,36 +816,6 @@ class Updater:
 				'exceeded': False,
 				'nowifi': False
 			}
-
-
-# https://stackoverflow.com/a/16198198
-class VerticalScrolledFrame(tk.Frame):
-	def __init__(self, parent, *args, **kw):
-		tk.Frame.__init__(self, parent, *args, **kw)
-
-		vscrollbar = tk.Scrollbar(self, orient = 'vertical')
-		vscrollbar.pack(fill = 'y', side = 'right')
-		canvas = tk.Canvas(self, bd = 0, highlightthickness = 0, yscrollcommand = vscrollbar.set)
-		canvas.pack(side = 'left', fill = 'both', expand = True)
-		vscrollbar.config(command = canvas.yview)
-
-		canvas.xview_moveto(0)
-		canvas.yview_moveto(0)
-
-		self.interior = interior = tk.Frame(canvas)
-		interior_id = canvas.create_window(0, 0, window = interior, anchor = 'nw')
-
-		def _configure_interior(event):
-			size = (interior.winfo_reqwidth(), interior.winfo_reqheight())
-			canvas.config(scrollregion = '0 0 %s %s' % size)
-			if interior.winfo_reqwidth() != canvas.winfo_width():
-				canvas.config(width=interior.winfo_reqwidth())
-		interior.bind('<Configure>', _configure_interior)
-
-		def _configure_canvas(event):
-			if interior.winfo_reqwidth() != canvas.winfo_width():
-				canvas.itemconfigure(interior_id, width=canvas.winfo_width())
-		canvas.bind('<Configure>', _configure_canvas)
 
 # https://stackoverflow.com/a/65447493
 class ThreadWithResult(threading.Thread):
