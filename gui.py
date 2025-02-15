@@ -58,8 +58,8 @@ https://github.com/{username}/{repo_name}/issues\
 	if term:
 		sys.exit()
 
-def process_ins_param(param):
-	if type(param) == list: return ', '.join(instr[1])
+def process_ins_param(dis, param):
+	if type(param) == list: return ', '.join(param)
 	elif type(param) == disas.Address:
 		if param.seg is None:
 			if param.addr in dis.data_labels: return dis.data_labels[param.addr]
@@ -101,7 +101,8 @@ class GUI:
 		self.init_window()
 		self.init_protocols()
 
-		# TODO: add settings here
+		self.bc_cond = False
+		self.bc_cond_tk = tk.BooleanVar(); self.bc_cond_tk.set(self.bc_cond)
 
 		# updater settings
 		self.auto_check_updates = tk.BooleanVar()
@@ -110,6 +111,7 @@ class GUI:
 		self.check_prerelease_version.set(False)
 
 		self.debug = False
+		self.bc_cond_debug = tk.BooleanVar(); self.bc_cond_debug.set(False)
 
 		# gets appdata folder
 		if os.name == 'nt':
@@ -126,7 +128,7 @@ class GUI:
 
 		self.refreshing = True
 
-		# TODO: add more toplevel classes
+		self.dis = disas.Disassembly()
 		self.UpdaterGUI = UpdaterGUI(self)
 
 		self.unsupported_tcl = False
@@ -142,6 +144,14 @@ Do you want to continue?\
 				self.quit()
 
 		self.menubar()
+
+		ttk.Label(text='Disassembly', font=self.bold_font).pack()
+		self.canvas = tk.Canvas()
+		self.canvas.pack(side = 'left', fill = 'both', expand = True)
+		scrollbar = ttk.Scrollbar(orient = 'vertical', command = self.canvas.yview)
+		scrollbar.pack(side = 'right', fill = 'y')
+		self.canvas.configure(yscrollcommand = scrollbar.set)
+		self.canvas.bind_all('<MouseWheel>', lambda e: self.canvas.yview_scroll(int(-1*(e.delta/120)), 'units'))
 
 	def start_main(self):
 		"""
@@ -196,26 +206,29 @@ Do you want to continue?\
 		sects = self.ini.sections()
 		if sects:
 			if 'settings' in sects:
-				# TODO: add commands for loading settings
-				pass
+				self.config_getbool('settings', 'bc_cond', True, 'bc_cond_tk')
 
 			if 'updater' in sects:
-				try:
-					self.auto_check_updates.set(self.ini.getboolean('updater', 'auto_check_updates'))
-				except (configparser.NoSectionError, configparser.NoOptionError):
-					pass
-				try:
-					self.check_prerelease_version.set(self.ini.getboolean('updater', 'check_prerelease_version'))
-				except (configparser.NoSectionError, configparser.NoOptionError):
-					pass
+				self.config_getbool('updater', 'auto_check_updates')
+				self.config_getbool('updater', 'check_prerelease_version')
 
 			if 'dont_touch_this_area_unless_you_know_what_youre_doing' in sects:
-				try:
-					self.debug = self.ini.getboolean('dont_touch_this_area_unless_you_know_what_youre_doing', 'debug')
-				except (configparser.NoSectionError, configparser.NoOptionError):
-					pass
+				self.config_getbool('dont_touch_this_area_unless_you_know_what_youre_doing', 'debug', False)
+				self.config_getbool('dont_touch_this_area_unless_you_know_what_youre_doing', 'bc_cond_debug')
 
 		self.save_settings()
+
+	def config_getbool(self, sect, name, tkvar = True, tkvarname = None):
+		try:
+			if tkvar:
+				getattr(self, name if tkvarname is None else tkvarname).set(self.ini.getboolean(sect, name))
+				if tkvarname is not None: setattr(self, name, getattr(self, tkvarname).get())
+			else: setattr(self, name, self.ini.getboolean(sect, name))
+		except (configparser.NoSectionError, configparser.NoOptionError): pass
+
+	def config_setbool(self, sect, name, tkvar = True, tkvarname = None):
+		if tkvar: self.ini[sect][name] = str(getattr(self, name if tkvarname is None else tkvarname).get())
+		else: self.ini[sect][name] = str(getattr(self, name))
 
 	def save_settings(self):
 		"""
@@ -223,19 +236,16 @@ Do you want to continue?\
 		"""
 
 		# settings are set individually and initialized when needed to retain compatibility between versions
-		if 'settings' not in self.ini.keys():
-			self.ini['settings'] = {}
+		if 'settings' not in self.ini.keys(): self.ini['settings'] = {}
+		self.config_setbool('settings', 'bc_cond', True, 'bc_cond_tk')
 
-		# TODO: add commands for saving settings
+		if 'updater' not in self.ini.keys(): self.ini['updater'] = {}
+		self.config_setbool('updater', 'auto_check_updates')
+		self.config_setbool('updater', 'check_prerelease_version')
 
-		if 'updater' not in self.ini.keys():
-			self.ini['updater'] = {}
-		self.ini['updater']['auto_check_updates'] = str(self.auto_check_updates.get())
-		self.ini['updater']['check_prerelease_version'] = str(self.check_prerelease_version.get())
-
-		if 'dont_touch_this_area_unless_you_know_what_youre_doing' not in self.ini.keys():
-			self.ini['dont_touch_this_area_unless_you_know_what_youre_doing'] = {}
-		self.ini['dont_touch_this_area_unless_you_know_what_youre_doing']['debug'] = str(self.debug)
+		if 'dont_touch_this_area_unless_you_know_what_youre_doing' not in self.ini.keys(): self.ini['dont_touch_this_area_unless_you_know_what_youre_doing'] = {}
+		self.config_setbool('dont_touch_this_area_unless_you_know_what_youre_doing', 'debug', False)
+		self.config_setbool('dont_touch_this_area_unless_you_know_what_youre_doing', 'bc_cond_debug')
 
 		if self.save_to_cwd:
 			with open(os.path.join(os.getcwd(), 'settings.ini'), 'w') as f:
@@ -243,7 +253,7 @@ Do you want to continue?\
 
 		if not os.path.exists(self.appdata_folder):
 			os.makedirs(self.appdata_folder)
-		with open(f'{self.appdata_folder}\\settings.ini', 'w') as f:
+		with open(f'{self.appdata_folder}{os.path.sep}settings.ini', 'w') as f:
 			self.ini.write(f)
 
 	@staticmethod
@@ -254,6 +264,10 @@ Do you want to continue?\
 
 		tk.messagebox.showinfo('Not implemented',
 							   f'This feature is not implemented into this version of {pg_name}. Sorry!')
+
+	@staticmethod
+	def notify_restart():
+		tk.messagebox.showinfo(pg_name, f'Please restart {pg_name} for the changes to take effect.')
 
 	def refresh(self, load_func=False):
 		"""
@@ -320,6 +334,7 @@ Do you want to continue?\
 			self.updater_win_open,
 			# TODO: add other "open" bools here
 		]):
+			self.save_settings()
 			sys.exit()
 
 	@staticmethod
@@ -391,6 +406,12 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		menubar.add_cascade(label='File', menu=file_menu)
 
 		settings_menu = tk.Menu(menubar)
+
+		bc_cond_menu = tk.Menu(settings_menu)
+		bc_cond_menu.add_radiobutton(label = 'Bcond Radr', variable = self.bc_cond_tk, value = False, command = self.replace_bcond if self.bc_cond_debug.get() else self.notify_restart)
+		bc_cond_menu.add_radiobutton(label = 'BC cond, Radr', variable = self.bc_cond_tk, value = True, command = self.replace_bcond if self.bc_cond_debug.get() else self.notify_restart)
+		settings_menu.add_cascade(label='Conditional branch syntax', menu=bc_cond_menu)
+
 		updater_settings_menu = tk.Menu(settings_menu)
 		updater_settings_menu.add_checkbutton(label='Check for updates on startup', variable=self.auto_check_updates,
 											  command=self.save_settings)
@@ -402,8 +423,16 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		if self.debug:
 			settings_menu.add_separator()
 			debug_menu = tk.Menu(settings_menu)
-			debug_menu.add_command(label='Version details', command=self.version_details, accelerator='F12')
+			
+			experimental_menu = tk.Menu()
+			experimental_menu.add_command(label = 'These settings may or may not work properly.', state = 'disabled')
+			experimental_menu.add_command(label = 'Use these settings with caution.', state = 'disabled')
+			experimental_menu.add_separator()
+			experimental_menu.add_checkbutton(label = 'Auto update Bcond <-> BC cond', variable = self.bc_cond_debug, command = self.notify_restart)
+			debug_menu.add_cascade(label = 'Debug/Experimental settings', menu = experimental_menu)
+
 			debug_menu.add_separator()
+			debug_menu.add_command(label='Version details', command=self.version_details, accelerator='F12')
 			debug_menu.add_command(label='Updater test', command=lambda: self.UpdaterGUI.init_window(debug=True))
 			debug_menu.add_separator()
 			debug_menu.add_command(label='Disable debug mode', command=self.disable_debug)
@@ -424,49 +453,110 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		Where the mainloop is called.
 		"""
 
-		ttk.Label(text='Test', font=self.bold_font).pack()
-		canvas = tk.Canvas()
-		canvas.pack(side = 'left', fill = 'both', expand = True)
-		scrollbar = ttk.Scrollbar(orient = 'vertical', command = canvas.yview)
-		scrollbar.pack(side = 'right', fill = 'y')
-		canvas.configure(yscrollcommand = scrollbar.set)
+		self.window.update()
 
-		frame = tk.Frame(canvas)
-		frame.pack(fill = 'both', expand = True)
-		canvas.create_window((0, 0), window = frame, anchor = 'nw')
-		text = ''
+		self.load_file('rom.bin')
 
-		with open('rom.bin', 'rb') as f: dis = disas.Disassembly(f.read())
-		dis.disassemble()
-		for addr, ins in dis.code.items():
-			if addr in dis.labels:
-				if dis.labels[addr][0] == disas.labeltype.FUN: text += '\n'
-				text += dis.labels[addr][1] + ':\n'
-			instrl = ins[0]
-			instr = ins[1]
-			tab = '\t'
-			string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
-			if len(instr) >= 2: string += ' ' + process_ins_param(instr[1])
-			if len(instr) == 3: string += ', ' + process_ins_param(instr[2])
-			text += string + '\n'
-		
-		y = 0
-		for a in text.split('\n'):
-			label = ttk.Label(frame, text = a, font = 'TkFixedFont')
-			label.pack(anchor = 'w', fill = 'x')
-			y += label.winfo_reqheight()
-			if y + label.winfo_reqheight() > 32767:
-				frame = tk.Frame(canvas)
-				frame.pack(fill = 'both', expand = True)
-				canvas.create_window((0, y), window = frame, anchor = 'nw')
-		canvas.config(scrollregion = canvas.bbox('all'))
+		self.draw_disas()
 
 		self.set_title()
 		self.window.mainloop()
 
+	def load_file(self, file):
+		self.dis.load(file)
+		self.dis.disassemble()
 
-# TODO: add some other classes here
+	def draw_disas(self):
+		mono = tk.font.Font(font = 'TkFixedFont').actual()
 
+		self.canvas.delete('all')
+		y = 0
+		pb = Progressbar(len(self.dis.code), 'Disassembling')
+		for addr, ins in self.dis.code.items():
+			instrl = ins[0]
+			instr = ins[1]
+			bc = addr in self.dis.conds
+			tab = ' '*4
+			opx = self.canvas.bbox(self.canvas.create_text(0, y, anchor = 'w', text = f'{addr >> 16:X}:{addr & 0xfffe:04X}H{tab*2}{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t', font = 'TkFixedFont'))[2]
+			opx = self.canvas.bbox(self.canvas.create_text(opx, y, anchor = 'w', text = f'{instr[0] if bc and self.bc_cond or not bc else "B"+instr[1]} ', font = (mono['family'], mono['size'], 'bold'), fill = 'blue', tag = f'i_{addr:05X}_0'))[2]
+			if bc and not self.bc_cond: del instr[1]
+			for i, op in enumerate(instr[1:]):
+				if i > 0: opx = self.canvas.bbox(self.canvas.create_text(opx, y, anchor = 'w', text = ',  ' if bc and self.bc_cond or not bc else ' ', tag = f'i_{addr:05X}_{i}{i+1}'))[2]
+				s_op = self.canvas.create_text(opx, y, anchor = 'w', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
+				self.canvas.tag_bind(s_op, '<Enter>', self._canvas_enter)
+				self.canvas.tag_bind(s_op, '<Leave>', self._canvas_leave)
+				opx = self.canvas.bbox(s_op)[2]
+			if bc and not self.bc_cond:
+				self.canvas.create_text(opx, y, anchor = 'w', tag = f'i_{addr:05X}_12', font = 'TkFixedFont')
+				self.canvas.create_text(opx, y, anchor = 'w', tag = f'i_{addr:05X}_2', font = 'TkFixedFont')
+			y += 20
+			pb.inc()
+		self.canvas.config(scrollregion = self.canvas.bbox('all'))
+
+	def replace_bcond(self):
+		bccond = self.bc_cond_tk.get()
+		if bccond and not self.bc_cond:
+			pb = Progressbar(len(self.dis.conds), 'Bcond Radr -> BC cond, Radr')
+			for addr in self.dis.conds:
+				instr = self.dis.code[addr][1]
+				self.canvas.itemconfigure(f'i_{addr:05X}_0', text = 'BC ')
+				self.canvas.itemconfigure(f'i_{addr:05X}_1', text = instr[1])
+				self._canvas_update_bbox(f'i_{addr:05X}_1', f'i_{addr:05X}_0')
+				self.canvas.itemconfigure(f'i_{addr:05X}_12', text = ', ')
+				self._canvas_update_bbox(f'i_{addr:05X}_12', f'i_{addr:05X}_1')
+				self.canvas.itemconfigure(f'i_{addr:05X}_2', text = instr[2])
+				self._canvas_update_bbox(f'i_{addr:05X}_2', f'i_{addr:05X}_12')
+				pb.inc()
+		elif not bccond and self.bc_cond:
+			pb = Progressbar(len(self.dis.conds), 'BC cond, Radr -> Bcond Radr')
+			for addr in self.dis.conds:
+				instr = self.dis.code[addr][1]
+				self.canvas.itemconfigure(f'i_{addr:05X}_0', text = f'B{instr[1]} ')
+				self.canvas.itemconfigure(f'i_{addr:05X}_1', text = instr[2])
+				self._canvas_update_bbox(f'i_{addr:05X}_1', f'i_{addr:05X}_0')
+				self.canvas.itemconfigure(f'i_{addr:05X}_12', text = '')
+				self.canvas.itemconfigure(f'i_{addr:05X}_2', text = '')
+				pb.inc()
+
+		self.bc_cond = bccond
+
+	def _canvas_get_tag(self):
+		item = self.canvas.find_withtag('current')
+		tags = self.canvas.gettags(item)
+		return tags[0]
+
+	def _canvas_update_bbox(self, tag1, tag2):
+		box = self.canvas.bbox(tag2)
+		self.canvas.coords(tag1, box[2], box[1])
+
+	def _canvas_enter(self, e): self.canvas.itemconfigure(self._canvas_get_tag(), fill = 'blue')
+
+	def _canvas_leave(self, e): self.canvas.itemconfigure(self._canvas_get_tag(), fill = 'black')
+
+
+class Progressbar(tk.Toplevel):
+	def __init__(self, length, text = None, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.resizable(False, False)
+		self.protocol('WM_DELETE_WINDOW', lambda: 'break')
+		self.title('Working...')
+		ttk.Label(self, text = text).pack()
+		self.__length = length
+		self.__bar = ttk.Progressbar(self, orient='horizontal', length=100, mode='determinate')
+		self.__bar.pack(side = 'left')
+		self.__lab = ttk.Label(self, text = '0%')
+		self.__lab.pack(side = 'right')
+		self.focus()
+		self.grab_set()
+		self.update()
+
+	def inc(self):
+		self.__bar['value'] += 100/self.__length
+		self.__lab['text'] = f'{int(self.__bar["value"])}%'
+		self.update()
+		if self.__bar['value'] >= 100:
+			self.grab_release()
+			self.destroy()
 
 class UpdaterGUI:
 	def __init__(self, gui):

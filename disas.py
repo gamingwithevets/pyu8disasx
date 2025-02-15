@@ -369,11 +369,14 @@ class Disassembly:
 		['ICESWI',	0xfeff,	None,									None],  # Triggers emulator software interrupt
 	]
 
-	def __init__(self, code_bytes):
-		if type(code_bytes) not in (bytes, bytearray): raise TypeError("'code_bytes' argument must be a bytes-like object")
-		if len(code_bytes) % 2 != 0: raise ValueError("'code_bytes' argument must have even length")
+	def __init__(self, code_bytes = None):
+		if code_bytes is not None:
+			if type(code_bytes) not in (bytes, bytearray): raise TypeError("'code_bytes' argument must be a bytes-like object")
+			if len(code_bytes) % 2 != 0: raise ValueError("'code_bytes' argument must have even length")
+			if len(code_bytes) == 0: raise ValueError("'code_bytes' argument must not be empty")
 
 		self.code = {}
+		self.conds = []
 		self.labels = {}
 		self.data_labels = {}
 		
@@ -385,6 +388,8 @@ class Disassembly:
 		self.__disas = False
 
 	def disassemble(self):
+		if self.__code_bytes is None: raise ValueError('no binary loaded')
+
 		if not self.__disas:
 			self.labels[self.read_word(2)] = [labeltype.FUN, 'start']
 			self.labels[self.read_word(4)] = [labeltype.FUN, 'brk']
@@ -414,6 +419,7 @@ class Disassembly:
 					instr = [_instr[0]]
 					if _instr[2] is not None: instr.append(_instr[2][3](self, _instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1]))
 					if _instr[3] is not None: instr.append(_instr[3][3](self, _instr[3][2], (instr_bytes & _instr[3][0]) >> _instr[3][1]))
+					if instr[0] == 'BC': self.conds.append(self.pc-2)
 					if instr[0] in ('SB', 'TB', 'RB'): instr[1] = BitOffset(instr[1], instr[2].value); instr.pop(2)
 					if len(instr) > 1 and type(instr[-1]) in (Address, Pointer) and _instr[len(instr)][3] == MemHandler and dsr_src is not None:
 						instr[-1] = DSRPrefix(dsr_src, instr[-1])
@@ -452,13 +458,16 @@ class Disassembly:
 		self.code = dict(sorted(self.code.items()))
 
 	def queue_add(self, addr):
+		if self.__code_bytes is None: raise ValueError('no binary loaded')
 		addr %= len(self.__code_bytes)
 		addr &= 0xffffe
 		if addr not in self.code:
 			self.__queue.append(addr)
 			if self.__queue.count(addr) > 1: self.__queue.remove(addr)
 
-	def read_word(self, addr): return (self.__code_bytes[addr+1] << 8) | self.__code_bytes[addr]
+	def read_word(self, addr):
+		if self.__code_bytes is None: raise ValueError('no binary loaded')
+		return (self.__code_bytes[addr+1] << 8) | self.__code_bytes[addr]
 
 	def fetch(self):
 		a = self.read_word(self.pc)
@@ -484,4 +493,7 @@ class Disassembly:
 
 		raise RuntimeError
 
-	def __repr__(self): return f'{type(self).__name__}(code_bytes=<{type(code_bytes).__name__}({len(code_bytes)})>)'
+	def load(self, file):
+		with open(file, 'rb') as f: self.__code_bytes = f.read()
+
+	def __repr__(self): return f'{type(self).__name__}(...)'
