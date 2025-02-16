@@ -448,7 +448,7 @@ class Disassembly:
 				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'_f_{cadr:05X}']
 				self.queue_add(self.pc)
 				self.queue_add(cadr)
-			elif instr[0] == 'RT' or instr[0] == 'RTI': pass
+			elif instr[0] == 'RT' or instr[0] == 'RTI' or (instr[0] == 'POP' and type(instr[1]) == list and 'PC' in instr[1]): pass
 			else: self.queue_add(self.pc)
 
 		self.code = dict(sorted(self.code.items()))

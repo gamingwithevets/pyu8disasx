@@ -503,12 +503,12 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 					else:
 						s_op = self.canvas.create_text(opx, y, anchor = 'nw', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
 						self.canvas.tag_bind(s_op, '<Button-1>', lambda e, adr = adr: self._canvas_moveto_address(adr, False))
-					self.canvas.tag_bind(s_op, '<Enter>', self._canvas_enter)
-					self.canvas.tag_bind(s_op, '<Leave>', self._canvas_leave)
+					self.canvas.tag_bind(s_op, '<Enter>', lambda e, tag = s_op: self._canvas_enter(tag))
+					self.canvas.tag_bind(s_op, '<Leave>', lambda e, tag = s_op: self._canvas_leave(tag))
 				else:
 					s_op = self.canvas.create_text(opx, y, anchor = 'nw', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
-					self.canvas.tag_bind(s_op, '<Enter>', self._canvas_enter)
-					self.canvas.tag_bind(s_op, '<Leave>', self._canvas_leave)
+					self.canvas.tag_bind(s_op, '<Enter>', lambda e, tag = s_op: self._canvas_enter(tag))
+					self.canvas.tag_bind(s_op, '<Leave>', lambda e, tag = s_op: self._canvas_leave(tag))
 				opx = self.canvas.bbox(s_op)[2]
 			y += 20
 			pb.inc()
@@ -545,13 +545,9 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		tags = self.canvas.gettags(item)
 		return tags[0]
 
-	def _canvas_update_bbox(self, tag1, tag2):
-		box = self.canvas.bbox(tag2)
-		self.canvas.coords(tag1, box[2], box[1])
+	def _canvas_enter(self, tag): self.canvas.itemconfigure(tag, fill = 'blue')
 
-	def _canvas_enter(self, e): self.canvas.itemconfigure(self._canvas_get_tag(), fill = 'blue')
-
-	def _canvas_leave(self, e): self.canvas.itemconfigure(self._canvas_get_tag(), fill = 'black')
+	def _canvas_leave(self, tag): self.canvas.itemconfigure(tag, fill = 'black')
 
 	def _canvas_moveto_address(self, addr, has_label = True):
 		bbox = self.canvas.bbox(f'i_{addr:05X}_0')
