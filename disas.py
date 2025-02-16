@@ -43,7 +43,7 @@ class ObjectBit:
 
 class Num:
 	__slots__ = ('bits', 'value', 'imm', 'disp', 'sign')
-	def __init__(self, bits, value, imm = True):
+	def __init__(self, bits, value = 0, imm = True, sign = True):
 		bits = int(bits)
 		if bits < 1: raise ValueError('invalid bit length')
 		elif type(value) == float: raise TypeError("'float' object cannot be interpreted as an integer")
@@ -51,7 +51,7 @@ class Num:
 		super().__setattr__('value', value & (2**bits-1))
 		super().__setattr__('imm', bool(imm))
 		self.disp = numdisp.HEX
-		self.sign = True
+		self.sign = sign
 
 	def __repr__(self): return f'{type(self).__name__}(bits={self.bits}, value={self.value}, disp={numdisp(self.disp).name})'
 	def __str__(self):
@@ -73,8 +73,8 @@ class Pointer:
 	def __init__(self, register, disp = None):
 		if type(register) not in (Register, str): raise TypeError("'register' argument must be of type Register or str")
 		elif disp is not None and type(disp) != Num: raise TypeError("'disp' argument must be of type NoneType or Num")
-		super().__setattr__('register', register)
-		super().__setattr__('disp', disp)
+		self.register = register
+		self.disp = disp
 
 	def __repr__(self): return f'{type(self).__name__}(register={repr(self.register)}, disp={repr(self.disp)})'
 	def __str__(self): return f'{"" if self.disp is None else self.disp}[{self.register}]'
@@ -84,25 +84,21 @@ class Address:
 	def __init__(self, addr, seg = None):
 		if type(addr) != int: raise TypeError("'addr' argument must be of type int")
 		elif seg is not None and type(seg) != int: raise TypeError("'seg' argument must be of type NoneType or int")
-		super().__setattr__('addr', addr)
-		super().__setattr__('seg', seg if seg is None else seg & 0xf)
+		self.addr = Num(16, addr, False, False)
+		self.seg = None if seg is None else Num(4, seg, False, False)
+
+	def get_combined(self): return (0 if self.seg is None else self.seg.value << 16) | self.addr.value
 
 	def __repr__(self): return f'{type(self).__name__}(addr={self.addr}{"" if self.seg is None else ", seg="+str(self.seg)})'
-	def __str__(self):
-		addr_fmt = format(self.addr, '04X')
-		string = f'{"" if addr_fmt[0].isnumeric() else "0"}{addr_fmt}H'
-		if self.seg is not None:
-			seg_fmt = format(self.seg, 'X')
-			string = f'{"" if seg_fmt[0].isnumeric() else "0"}{seg_fmt}:' + string
-		return string
+	def __str__(self): return f'{"" if self.seg is None else str(self.seg) + ":"}{self.addr}'
 
 class DSRPrefix:
 	__slots__ = ('dsr', 'item')
 	def __init__(self, dsr, item):
 		if dsr != 'DSR' and type(dsr) not in (Register, Num): raise TypeError("'dsr' argument must be of type Register, Num or str (= 'DSR')")
 		elif type(item) not in (Pointer, Address): raise TypeError("'seg' argument must be of type Pointer or Address")
-		super().__setattr__('dsr', dsr)
-		super().__setattr__('item', item)
+		self.dsr = dsr
+		self.item = item
 
 	def __repr__(self): return f'{type(self).__name__}(dsr={self.dsr}, item={self.item})'
 	def __str__(self): return f'{self.dsr}:{self.item}'
@@ -112,8 +108,8 @@ class BitOffset:
 	def __init__(self, item, bit):
 		if type(item) not in (Register, Address): raise TypeError("'dsr' argument must be of type Register or Address")
 		elif type(bit) != int: raise TypeError("'bit' argument must be of type int")
-		super().__setattr__('item', item)
-		super().__setattr__('bit', bit & 7)
+		self.item = item
+		self.bit = bit & 7
 
 	def __repr__(self): return f'{type(self).__name__}(item={self.item}, bit={self.bit})'
 	def __str__(self): return f'{self.item}.{self.bit}'
@@ -425,12 +421,12 @@ class Disassembly:
 						instr[-1] = DSRPrefix(dsr_src, instr[-1])
 						dsr_src = None
 					if len(instr) > 1 and instr[0] in ('L', 'ST', 'SB', 'TB', 'RB'):
-						if type(instr[-1]) == Address: self.data_labels[instr[-1].addr] = f'd_{instr[-1].addr:05X}'
+						if type(instr[-1]) == Address: self.data_labels[instr[-1].addr] = f'd_{instr[-1].addr.value:05X}'
 						elif type(instr[-1]) == DSRPrefix and type(instr[-1].dsr) == Num and type(instr[-1].item) == Address:
-							addr = (instr[-1].dsr.value << 16) | instr[-1].item.addr
+							addr = (instr[-1].dsr.value << 16) | instr[-1].item.addr.value
 							self.data_labels[addr] = f'd_{addr:05X}'
 						elif type(instr[-1]) == BitOffset and type(instr[-1].item) == Address:
-							self.data_labels[instr[-1].item] = f'd_{instr[-1].item.addr:05X}'
+							self.data_labels[instr[-1].item.addr.value] = f'd_{instr[-1].item.addr.value:05X}'
 			except RuntimeError: instr = ['DW', Num(16, instr_bytes, False)]
 
 			ins_len = len(self.__instrl)*2
@@ -443,12 +439,12 @@ class Disassembly:
 			self.__instrl = []
 			
 			if (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
-				radr = (instr[-1].seg << 16) | instr[-1].addr
+				radr = instr[-1].get_combined()
 				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'_$j_{radr:05X}']
 				self.queue_add(radr)
 				if instr[0] == 'BC' and instr[1] != 'AL': self.queue_add(self.pc)
 			elif instr[0] == 'BL' and type(instr[1]) == Address:
-				cadr = (instr[-1].seg << 16) | instr[-1].addr
+				cadr = instr[-1].get_combined()
 				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'_f_{cadr:05X}']
 				self.queue_add(self.pc)
 				self.queue_add(cadr)

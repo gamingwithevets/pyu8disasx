@@ -5,6 +5,7 @@ if __name__ == '__main__':
 	sys.exit()
 
 import os
+import re
 import platform
 import traceback
 import tkinter as tk
@@ -127,6 +128,7 @@ class GUI:
 		self.parse_settings()
 
 		self.refreshing = True
+		self.scrolling = False
 
 		self.dis = disas.Disassembly()
 		self.UpdaterGUI = UpdaterGUI(self)
@@ -151,7 +153,10 @@ Do you want to continue?\
 		scrollbar = ttk.Scrollbar(orient = 'vertical', command = self.canvas.yview)
 		scrollbar.pack(side = 'right', fill = 'y')
 		self.canvas.configure(yscrollcommand = scrollbar.set)
-		self.canvas.bind_all('<MouseWheel>', lambda e: self.canvas.yview_scroll(int(-1*(e.delta/120)), 'units'))
+		self.canvas.bind('<MouseWheel>', self.scrollwheel)
+
+	def scrollwheel(self, e):
+		if self.scrolling: self.canvas.yview_scroll(int(-1*(e.delta/120)), 'units')
 
 	def start_main(self):
 		"""
@@ -471,24 +476,40 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 
 		self.canvas.delete('all')
 		y = 0
-		pb = Progressbar(len(self.dis.code), 'Disassembling')
+		pb = Progressbar(self, len(self.dis.code), 'Disassembling')
 		for addr, ins in self.dis.code.items():
+			if addr in self.dis.labels:
+				l = self.dis.labels[addr]
+				if l[0] == disas.labeltype.FUN: y += 20
+				self.canvas.create_text(0, y, anchor = 'nw', text = f'{l[1]}:', font = 'TkFixedFont')
+				y += 20
+
 			instrl = ins[0]
 			instr = ins[1]
 			bc = addr in self.dis.conds
 			tab = ' '*4
-			opx = self.canvas.bbox(self.canvas.create_text(0, y, anchor = 'w', text = f'{addr >> 16:X}:{addr & 0xfffe:04X}H{tab*2}{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t', font = 'TkFixedFont'))[2]
-			opx = self.canvas.bbox(self.canvas.create_text(opx, y, anchor = 'w', text = f'{instr[0] if bc and self.bc_cond or not bc else "B"+instr[1]} ', font = (mono['family'], mono['size'], 'bold'), fill = 'blue', tag = f'i_{addr:05X}_0'))[2]
-			if bc and not self.bc_cond: del instr[1]
+			opx = self.canvas.bbox(self.canvas.create_text(0, y, anchor = 'nw', text = f'{addr >> 16:X}:{addr & 0xfffe:04X}H{tab*2}{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t', font = 'TkFixedFont'))[2]
+			opx = self.canvas.bbox(self.canvas.create_text(opx, y, anchor = 'nw', text = f'{instr[0] if bc and self.bc_cond or not bc else "B"+instr[1]} ', font = (mono['family'], mono['size'], 'bold'), fill = 'blue', tag = f'i_{addr:05X}_0'))[2]
 			for i, op in enumerate(instr[1:]):
-				if i > 0: opx = self.canvas.bbox(self.canvas.create_text(opx, y, anchor = 'w', text = ',  ' if bc and self.bc_cond or not bc else ' ', tag = f'i_{addr:05X}_{i}{i+1}'))[2]
-				s_op = self.canvas.create_text(opx, y, anchor = 'w', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
-				self.canvas.tag_bind(s_op, '<Enter>', self._canvas_enter)
-				self.canvas.tag_bind(s_op, '<Leave>', self._canvas_leave)
+				if i == 0 and bc and not self.bc_cond:
+					self.canvas.create_text(opx, y, anchor = 'nw', tag = f'i_{addr:05X}_1', font = 'TkFixedFont')
+					continue
+				if i > 0: opx = self.canvas.bbox(self.canvas.create_text(opx, y, anchor = 'nw', text = ',  ' if bc and self.bc_cond or not bc else '', tag = f'i_{addr:05X}_{i}{i+1}'))[2]
+				if type(op) == disas.Address:
+					adr = op.get_combined()
+					if adr in self.dis.labels:
+						s_op = self.canvas.create_text(opx, y, anchor = 'nw', text = self.dis.labels[adr][1], tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
+						self.canvas.tag_bind(s_op, '<Button-1>', lambda e, adr = adr: self._canvas_moveto_address(adr))
+					else:
+						s_op = self.canvas.create_text(opx, y, anchor = 'nw', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
+						self.canvas.tag_bind(s_op, '<Button-1>', lambda e, adr = adr: self._canvas_moveto_address(adr, False))
+					self.canvas.tag_bind(s_op, '<Enter>', self._canvas_enter)
+					self.canvas.tag_bind(s_op, '<Leave>', self._canvas_leave)
+				else:
+					s_op = self.canvas.create_text(opx, y, anchor = 'nw', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
+					self.canvas.tag_bind(s_op, '<Enter>', self._canvas_enter)
+					self.canvas.tag_bind(s_op, '<Leave>', self._canvas_leave)
 				opx = self.canvas.bbox(s_op)[2]
-			if bc and not self.bc_cond:
-				self.canvas.create_text(opx, y, anchor = 'w', tag = f'i_{addr:05X}_12', font = 'TkFixedFont')
-				self.canvas.create_text(opx, y, anchor = 'w', tag = f'i_{addr:05X}_2', font = 'TkFixedFont')
 			y += 20
 			pb.inc()
 		self.canvas.config(scrollregion = self.canvas.bbox('all'))
@@ -496,7 +517,7 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 	def replace_bcond(self):
 		bccond = self.bc_cond_tk.get()
 		if bccond and not self.bc_cond:
-			pb = Progressbar(len(self.dis.conds), 'Bcond Radr -> BC cond, Radr')
+			pb = Progressbar(self, len(self.dis.conds), 'Bcond Radr -> BC cond, Radr')
 			for addr in self.dis.conds:
 				instr = self.dis.code[addr][1]
 				self.canvas.itemconfigure(f'i_{addr:05X}_0', text = 'BC ')
@@ -508,14 +529,13 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 				self._canvas_update_bbox(f'i_{addr:05X}_2', f'i_{addr:05X}_12')
 				pb.inc()
 		elif not bccond and self.bc_cond:
-			pb = Progressbar(len(self.dis.conds), 'BC cond, Radr -> Bcond Radr')
+			pb = Progressbar(self, len(self.dis.conds), 'BC cond, Radr -> Bcond Radr')
 			for addr in self.dis.conds:
 				instr = self.dis.code[addr][1]
 				self.canvas.itemconfigure(f'i_{addr:05X}_0', text = f'B{instr[1]} ')
-				self.canvas.itemconfigure(f'i_{addr:05X}_1', text = instr[2])
-				self._canvas_update_bbox(f'i_{addr:05X}_1', f'i_{addr:05X}_0')
+				self.canvas.itemconfigure(f'i_{addr:05X}_1', text = '')
 				self.canvas.itemconfigure(f'i_{addr:05X}_12', text = '')
-				self.canvas.itemconfigure(f'i_{addr:05X}_2', text = '')
+				self._canvas_update_bbox(f'i_{addr:05X}_2', f'i_{addr:05X}_0')
 				pb.inc()
 
 		self.bc_cond = bccond
@@ -533,28 +553,36 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 
 	def _canvas_leave(self, e): self.canvas.itemconfigure(self._canvas_get_tag(), fill = 'black')
 
+	def _canvas_moveto_address(self, addr, has_label = True):
+		bbox = self.canvas.bbox(f'i_{addr:05X}_0')
+		if bbox:
+			_, _, _, scroll_hi = map(int, self.canvas.cget('scrollregion').split())
+			self.canvas.yview_moveto((bbox[1] - (40 if has_label else 20)) / scroll_hi)
 
 class Progressbar(tk.Toplevel):
-	def __init__(self, length, text = None, *args, **kwargs):
+	def __init__(self, gui, length, text = None, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.resizable(False, False)
 		self.protocol('WM_DELETE_WINDOW', lambda: 'break')
 		self.title('Working...')
 		ttk.Label(self, text = text).pack()
 		self.__length = length
-		self.__bar = ttk.Progressbar(self, orient='horizontal', length=100, mode='determinate')
+		self.__bar = ttk.Progressbar(self, orient='horizontal', length = 100, maximum=length, mode='determinate')
 		self.__bar.pack(side = 'left')
 		self.__lab = ttk.Label(self, text = '0%')
 		self.__lab.pack(side = 'right')
 		self.focus()
 		self.grab_set()
+		self.gui = gui
+		gui.scrolling = False
 		self.update()
 
 	def inc(self):
-		self.__bar['value'] += 100/self.__length
-		self.__lab['text'] = f'{int(self.__bar["value"])}%'
+		self.__bar['value'] += 1
+		self.__lab['text'] = f'{int(self.__bar["value"]/self.__length*100)}%'
 		self.update()
-		if self.__bar['value'] >= 100:
+		if self.__bar['value'] == self.__length:
+			self.gui.scrolling = True
 			self.grab_release()
 			self.destroy()
 
