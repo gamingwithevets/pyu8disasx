@@ -30,6 +30,8 @@ class Register:
 	def __str__(self): return f'{self.__reg_prefixes[self.size]}{self.n}'
 	def __setattr__(self, name, value): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
 
+	def __eq__(self, other): return isinstance(other, Register) and self.size == other.size and self.n == other.n
+
 class ObjectBit:
 	__slots__ = ('obj', 'bit')
 	def __init__(self, obj, bit):
@@ -117,8 +119,12 @@ class BitOffset:
 
 def RegHandler(self, flags, value): return Register(flags & 0xf, value)
 
-def NumHandler(self, flags, value):
-	return Num(flags, value)
+def NumHandler(self, flags, value): return Num(flags, value)
+
+def ShiftNumHandler(self, flags, value):
+	n = Num(flags, value, sign = False)
+	n.disp = numdisp.DEC
+	return n
 
 def RegCtrlHandler(self, flags, value):
 	flags &= 0xf
@@ -232,15 +238,15 @@ class Disassembly:
 
 		# Shift Instructions
 		['SLL',		0x800a,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
-		['SLL',		0x900a,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['SLL',		0x900a,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 		['SLLC',	0x800b,	[0x0f00, 8,  0x0012, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
-		['SLLC',	0x900b,	[0x0f00, 8,  0x0012, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['SLLC',	0x900b,	[0x0f00, 8,  0x0012, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 		['SRA',		0x800e,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
-		['SRA',		0x900e,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['SRA',		0x900e,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 		['SRL',		0x800c,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
-		['SRL',		0x900c,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['SRL',		0x900c,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 		['SRLC',	0x800d,	[0x0f00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
-		['SRLC',	0x900d,	[0x0f00, 8,  0x0002, RegHandler],		[0x0070, 4,  0x0003, NumHandler]],
+		['SRLC',	0x900d,	[0x0f00, 8,  0x0002, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 
 		# Load/Store Instructions
 		['L',		0x9032,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1001, MemHandler]],
@@ -394,16 +400,18 @@ class Disassembly:
 		if n % size != 0: raise ValueError('invalid register for specified size')
 		val = 0
 		for i in range(size-1, -1, -1): val = val << 8 | self.r[n+i]
+		#print(f'{self.pc-2:05X}: read {Register(size, n)} = 0x{val:x}')
 		return val
 
 	def set_r(self, size, n, value):
+		#print(f'{self.pc-2:05X}: set {Register(size, n)} = 0x{value:x}')
 		value &= 0xff
 		if size not in (1, 2, 4, 8): raise ValueError('invalid size')
 		if value < 0 or value >= 2**8**size: raise ValueError('invalid value for specified size')
 		if n % size != 0: raise ValueError('invalid register for specified size')
 		for i in range(size):
-			value >>= 8
 			self.r[n+i] = value & 0xff
+			value >>= 8
 
 	def disassemble(self):
 		if self.__code_bytes is None: raise ValueError('no binary loaded')
@@ -418,6 +426,7 @@ class Disassembly:
 		instr = None
 		prev_instr = None
 		dsr_src = None
+		possible_jmp_table_adrs = None
 
 		while len(self.__queue) > 0:
 			prev_instr = instr
@@ -447,20 +456,12 @@ class Disassembly:
 						instr[-1] = DSRPrefix(dsr_src, instr[-1])
 						dsr_src = None
 					if len(instr) > 1 and instr[0] in ('L', 'ST', 'SB', 'TB', 'RB'):
-						if type(instr[-1]) == Address: self.data_labels[instr[-1].addr] = f'd_{instr[-1].addr.value:05X}'
+						if type(instr[-1]) == Address: self.data_labels[instr[-1].addr.value] = f'd_{instr[-1].addr.value:05X}'
 						elif type(instr[-1]) == DSRPrefix and type(instr[-1].dsr) == Num and type(instr[-1].item) == Address:
 							addr = (instr[-1].dsr.value << 16) | instr[-1].item.addr.value
 							self.data_labels[addr] = f'd_{addr:05X}'
 						elif type(instr[-1]) == BitOffset and type(instr[-1].item) == Address:
 							self.data_labels[instr[-1].item.addr.value] = f'd_{instr[-1].item.addr.value:05X}'
-					if instr[0] == 'MOV' and type(instr[1]) == Register and type(instr[2]) != str: self.set_r(instr[1].size, instr[1].n, instr[2].value if type(instr[2]) == Num else self.get_r(instr[2].size, instr[2].n))
-					if instr[0] in ('B', 'BL') and type(instr[1]) == Register:
-						if prev_instr[0] == 'L' and prev_instr[1].size == 2 and prev_instr[1].n == instr[1].n and prev_instr[2].disp is not None: ptr_adr = prev_instr[2].disp.value
-						else: ptr_adr = self.get_r(2, instr[1].n)
-						ptr_adr |= (self.pc-2) & 0x10000
-						if ptr_adr >= 6:
-							self.__jump_tables.append(ptr_adr)
-							self.__jump_tablesregs.append(self.r.copy())
 
 			except RuntimeError: instr = ['DW', Num(16, instr_bytes, False)]
 
@@ -473,31 +474,70 @@ class Disassembly:
 
 			self.__instrl = []
 			
+			if instr[0] == 'MOV' and type(instr[1]) == Register and type(instr[2]) != str: self.set_r(instr[1].size, instr[1].n, instr[2].value if type(instr[2]) == Num else self.get_r(instr[2].size, instr[2].n))
+
+			if instr[0] == 'PUSH' and type(instr[1]) == Register:
+				if prev_instr[0] == 'L' and prev_instr[1].size == 2 and prev_instr[1] == instr[1] and type(prev_instr[2]) == Pointer and prev_instr[2].disp is not None: possible_jmp_table_adrs = prev_instr[2].disp.value
+				else: possible_jmp_table_adrs = None
+			if instr[0] == 'PUSH' and type(instr[1]) == list and 'LR' in instr[1]: possible_jmp_table_adrs = None
+			if instr[0] in ('B', 'BL') and type(instr[1]) == Register:
+				if prev_instr[0] == 'L' and prev_instr[1] == instr[1] and prev_instr[2].disp is not None: ptr_adr = prev_instr[2].disp.value
+				else: ptr_adr = self.get_r(2, instr[1].n)
+				#print(hex(self.pc-2), hex(ptr_adr))
+				if ptr_adr >= 6:
+					self.__jump_tables.append([ptr_adr, False, (self.pc-2) & 0x10000])
+					self.__jump_tablesregs.append(self.r.copy())
 			if (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
 				radr = instr[-1].get_combined()
-				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'_$j_{radr:05X}']
+				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'_$j_{radr:05x}']
 				self.queue_add(radr)
 				if instr[0] == 'BC' and instr[1] != 'AL': self.queue_add(self.pc)
-			elif instr[0] == 'BL' and type(instr[1]) == Address:
+			if instr[0] == 'BL' and type(instr[1]) == Address:
 				cadr = instr[-1].get_combined()
 				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'_f_{cadr:05X}']
-				self.queue_add(self.pc)
 				self.queue_add(cadr)
-			elif instr[0] == 'RT' or instr[0] == 'RTI' or (instr[0] == 'POP' and type(instr[1]) == list and 'PC' in instr[1]): pass
+				self.queue_add(self.pc)
+				if cadr in self.code:
+					ins = self.code[cadr][1]
+					if ins[0] == 'POP' and type(ins[1]) == list and 'PC' in ins[1]:
+						if possible_jmp_table_adrs:
+							self.__jump_tables.append([possible_jmp_table_adrs, True])
+							self.__jump_tablesregs.append(self.r.copy())
+							possible_jmp_table_adrs = None
+			elif instr[0] == 'RT' or instr[0] == 'RTI' or (instr[0] == 'POP' and type(instr[1]) == list and 'PC' in instr[1]):
+				if possible_jmp_table_adrs:
+					self.__jump_tables.append([possible_jmp_table_adrs, True])
+					self.__jump_tablesregs.append(self.r.copy())
+				possible_jmp_table_adrs = None
 			else: self.queue_add(self.pc)
 
 			if len(self.__queue) == 0:
 				while len(self.__jump_tables) > 0:
-					a = self.__jump_tables.pop()
+					entry = self.__jump_tables.pop()
 					r = self.__jump_tablesregs.pop()
-					s = min(self.code.keys())
-					l = max(self.code.keys())
+					adr_s = min(self.code)
+					adr_l = max(self.code)
+					a = entry[0]
 					i = 0
-					adr = self.read_word(a)
-					while s < adr < l:
-						self.__queue.append(adr)
-						self.__queueregs.append(r)
-						i += 2
+					#print('='*5, hex(a), '='*5)
+					if entry[1]:
+						adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
+						while adr_s <= adr <= adr_l:
+							#print(hex(adr))
+							self.__queue.append(adr)
+							self.__queueregs.append(r)
+							i += 4
+							adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
+					else:
+						seg = entry[2]
+						adr = seg + self.read_word(a+i)
+						while adr_s <= adr <= adr_l and adr & 0xffff > 0:
+							#print(hex(adr))
+							if adr not in self.labels: self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
+							self.__queue.append(adr)
+							self.__queueregs.append(r)
+							i += 2
+							adr = seg + self.read_word(a+i)
 
 		self.code = dict(sorted(self.code.items()))
 
