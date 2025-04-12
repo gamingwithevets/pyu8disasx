@@ -62,7 +62,7 @@ class Num:
 		elif self.disp == numdisp.BIN: string = f'{value:b}B'
 		if string[0] == '-':
 			if not string[1].isnumeric(): string = f'-0{string[1:]}'
-		elif not string[0].isnumeric(): string = f'0{string[1:]}'
+		elif not string[0].isnumeric(): string = f'0{string}'
 		return '#' + string if self.imm else string
 	def __setattr__(self, name, value):
 		if name in ('bits', 'value'): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
@@ -73,6 +73,7 @@ class Pointer:
 	def __init__(self, register, disp = None):
 		if type(register) not in (Register, str): raise TypeError("'register' argument must be of type Register or str")
 		elif disp is not None and type(disp) != Num: raise TypeError("'disp' argument must be of type NoneType or Num")
+		elif disp is not None and disp.imm: raise TypeError("'disp' Num object must not be an immediate")
 		self.register = register
 		self.disp = disp
 
@@ -116,7 +117,8 @@ class BitOffset:
 
 def RegHandler(self, flags, value): return Register(flags & 0xf, value)
 
-def NumHandler(self, flags, value): return Num(flags, value)
+def NumHandler(self, flags, value):
+	return Num(flags, value)
 
 def RegCtrlHandler(self, flags, value):
 	flags &= 0xf
@@ -135,8 +137,8 @@ def MemHandler(self, flags, value):
 
 	if s & 8 and r == 1: return Pointer('EA+')
 	if d == 0: disp = None
-	elif d == 1: disp = Num(16, self.fetch())
-	elif d == 2: disp = Num(e+1, value)
+	elif d == 1: disp = Num(16, self.fetch(), False)
+	elif d == 2: disp = Num(e+1, value, False)
 	if r == 0 and disp is not None: return Address(disp.value)
 	elif r > 0:
 		if r == 1: reg = 'EA'
@@ -378,10 +380,30 @@ class Disassembly:
 		
 		self.__code_bytes = code_bytes
 		self.pc = 0
+		self.r = [0]*16
 		self.__queue = []
+		self.__queueregs = []
+		self.__jump_tables = []
+		self.__jump_tablesregs = []
 		self.__instrl = []
 
 		self.__disas = False
+
+	def get_r(self, size, n):
+		if size not in (1, 2, 4, 8): raise ValueError('invalid size')
+		if n % size != 0: raise ValueError('invalid register for specified size')
+		val = 0
+		for i in range(size-1, -1, -1): val = val << 8 | self.r[n+i]
+		return val
+
+	def set_r(self, size, n, value):
+		value &= 0xff
+		if size not in (1, 2, 4, 8): raise ValueError('invalid size')
+		if value < 0 or value >= 2**8**size: raise ValueError('invalid value for specified size')
+		if n % size != 0: raise ValueError('invalid register for specified size')
+		for i in range(size):
+			value >>= 8
+			self.r[n+i] = value & 0xff
 
 	def disassemble(self):
 		if self.__code_bytes is None: raise ValueError('no binary loaded')
@@ -401,7 +423,11 @@ class Disassembly:
 			prev_instr = instr
 
 			self.pc = self.__queue.pop()
-			if self.pc in self.__queue: self.__queue.remove(self.pc)
+			self.r = self.__queueregs.pop().copy()
+			while self.pc in self.__queue:
+				idx = self.__queue.index(self.pc)
+				self.__queue.pop(idx)
+				self.__queueregs.pop(idx)
 			instr_bytes = self.fetch()
 			try:
 				_instr, dsr = self.decode(instr_bytes)
@@ -409,7 +435,7 @@ class Disassembly:
 					if _instr[2][3] == RegCtrlHandler: instr = ['EDSR']
 					else: instr = ['DW', Num(16, instr_bytes, False)]
 					dsr_src = _instr[2][3](self, _instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1])
-					self.__queue.append(self.pc)
+					self.queue_add(self.pc)
 					continue
 				else:
 					instr = [_instr[0]]
@@ -427,6 +453,15 @@ class Disassembly:
 							self.data_labels[addr] = f'd_{addr:05X}'
 						elif type(instr[-1]) == BitOffset and type(instr[-1].item) == Address:
 							self.data_labels[instr[-1].item.addr.value] = f'd_{instr[-1].item.addr.value:05X}'
+					if instr[0] == 'MOV' and type(instr[1]) == Register and type(instr[2]) != str: self.set_r(instr[1].size, instr[1].n, instr[2].value if type(instr[2]) == Num else self.get_r(instr[2].size, instr[2].n))
+					if instr[0] in ('B', 'BL') and type(instr[1]) == Register:
+						if prev_instr[0] == 'L' and prev_instr[1].size == 2 and prev_instr[1].n == instr[1].n and prev_instr[2].disp is not None: ptr_adr = prev_instr[2].disp.value
+						else: ptr_adr = self.get_r(2, instr[1].n)
+						ptr_adr |= (self.pc-2) & 0x10000
+						if ptr_adr >= 6:
+							self.__jump_tables.append(ptr_adr)
+							self.__jump_tablesregs.append(self.r.copy())
+
 			except RuntimeError: instr = ['DW', Num(16, instr_bytes, False)]
 
 			ins_len = len(self.__instrl)*2
@@ -451,15 +486,28 @@ class Disassembly:
 			elif instr[0] == 'RT' or instr[0] == 'RTI' or (instr[0] == 'POP' and type(instr[1]) == list and 'PC' in instr[1]): pass
 			else: self.queue_add(self.pc)
 
+			if len(self.__queue) == 0:
+				while len(self.__jump_tables) > 0:
+					a = self.__jump_tables.pop()
+					r = self.__jump_tablesregs.pop()
+					s = min(self.code.keys())
+					l = max(self.code.keys())
+					i = 0
+					adr = self.read_word(a)
+					while s < adr < l:
+						self.__queue.append(adr)
+						self.__queueregs.append(r)
+						i += 2
+
 		self.code = dict(sorted(self.code.items()))
 
 	def queue_add(self, addr):
 		if self.__code_bytes is None: raise ValueError('no binary loaded')
 		addr %= len(self.__code_bytes)
 		addr &= 0xffffe
-		if addr not in self.code:
+		if addr not in self.code and addr not in self.__queue:
 			self.__queue.append(addr)
-			if self.__queue.count(addr) > 1: self.__queue.remove(addr)
+			self.__queueregs.append(self.r.copy())
 
 	def read_word(self, addr):
 		if self.__code_bytes is None: raise ValueError('no binary loaded')
