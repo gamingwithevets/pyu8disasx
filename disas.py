@@ -4,6 +4,7 @@ if __name__ == '__main__':
 	sys.exit()
 
 from enum import IntEnum
+import os
 import math
 
 def conv_sign(value, bits): return value - (value >> (bits - 1)) * (2**bits)
@@ -13,6 +14,7 @@ class numdisp(IntEnum):
 	DEC = 1
 	OCT = 2
 	BIN = 3
+	CHAR = 4
 
 class labeltype(IntEnum):
 	FUN = 0
@@ -57,14 +59,18 @@ class Num:
 
 	def __repr__(self): return f'{type(self).__name__}(bits={self.bits}, value={self.value}, disp={numdisp(self.disp).name})'
 	def __str__(self):
-		value = conv_sign(self.value, self.bits) if self.sign else self.value
-		if self.disp == numdisp.HEX: string = f'{value:X}H'
-		elif self.disp == numdisp.DEC: string = f'{value}'
-		elif self.disp == numdisp.OCT: string = f'{value:o}O'
-		elif self.disp == numdisp.BIN: string = f'{value:b}B'
-		if string[0] == '-':
-			if not string[1].isnumeric(): string = f'-0{string[1:]}'
-		elif not string[0].isnumeric(): string = f'0{string}'
+		if self.disp == numdisp.CHAR:
+			if self.bits != 8: raise ValueError('character constant display can only be used with bit length 8')
+			string = repr(chr(self.value))
+		else:
+			value = conv_sign(self.value, self.bits) if self.sign else self.value
+			if self.disp == numdisp.HEX: string = f'{value:X}H'
+			elif self.disp == numdisp.DEC: string = f'{value}'
+			elif self.disp == numdisp.OCT: string = f'{value:o}O'
+			elif self.disp == numdisp.BIN: string = f'{value:b}B'
+			if string[0] == '-':
+				if not string[1].isnumeric(): string = f'-0{string[1:]}'
+			elif not string[0].isnumeric(): string = f'0{string}'
 		return '#' + string if self.imm else string
 	def __setattr__(self, name, value):
 		if name in ('bits', 'value'): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
@@ -215,7 +221,7 @@ class Disassembly:
 		['ADD',		0x8001,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 		['ADD',		0x1000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
 		['ADD',		0xf006, [0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]],
-		['ADD',		0xe080, [0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0006, NumHandler]],
+		['ADD',		0xe080, [0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0007, NumHandler]],
 		['ADDC',	0x8006,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 		['ADDC',	0x6000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
 		['AND',		0x8002,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
@@ -225,7 +231,7 @@ class Disassembly:
 		['CMPC',	0x8005,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 		['CMPC',	0x5000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
 		['MOV',		0xf005,	[0x0e00, 8,  0x0002, RegHandler],		[0x00e0, 4,  0x0002, RegHandler]],
-		['MOV',		0xe000,	[0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0006, NumHandler]],
+		['MOV',		0xe000,	[0x0e00, 8,  0x0002, RegHandler],		[0x007f, 0,  0x0007, NumHandler]],
 		['MOV',		0x8000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 		['MOV',		0x0000,	[0x0f00, 8,  0x0001, RegHandler],		[0x00ff, 0,  0x0008, NumHandler]],
 		['OR',		0x8003,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
@@ -239,14 +245,14 @@ class Disassembly:
 		# Shift Instructions
 		['SLL',		0x800a,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 		['SLL',		0x900a,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
-		['SLLC',	0x800b,	[0x0f00, 8,  0x0012, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
-		['SLLC',	0x900b,	[0x0f00, 8,  0x0012, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
+		['SLLC',	0x800b,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SLLC',	0x900b,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 		['SRA',		0x800e,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 		['SRA',		0x900e,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 		['SRL',		0x800c,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
 		['SRL',		0x900c,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
-		['SRLC',	0x800d,	[0x0f00, 8,  0x0002, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
-		['SRLC',	0x900d,	[0x0f00, 8,  0x0002, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
+		['SRLC',	0x800d,	[0x0f00, 8,  0x0001, RegHandler],		[0x00f0, 4,  0x0001, RegHandler]],
+		['SRLC',	0x900d,	[0x0f00, 8,  0x0001, RegHandler],		[0x0070, 4,  0x0003, ShiftNumHandler]],
 
 		# Load/Store Instructions
 		['L',		0x9032,	[0x0e00, 8,  0x0002, RegHandler],		[0x0000, 0,  0x1001, MemHandler]],
@@ -383,6 +389,7 @@ class Disassembly:
 		self.conds = []
 		self.labels = {}
 		self.data_labels = {}
+		self.filename = ''
 		
 		self.__code_bytes = code_bytes
 		self.pc = 0
@@ -578,6 +585,7 @@ class Disassembly:
 		raise RuntimeError
 
 	def load(self, file):
+		self.filename = file
 		with open(file, 'rb') as f: self.__code_bytes = f.read()
 
 	def __repr__(self): return f'{type(self).__name__}(...)'

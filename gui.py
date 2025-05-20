@@ -11,6 +11,7 @@ import traceback
 import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter.font
+import tkinter.filedialog
 import tkinter.messagebox
 
 # for PyInstaller binaries
@@ -20,6 +21,7 @@ except AttributeError:
 	temp_path = os.getcwd()
 
 import json
+import math
 import disas
 import urllib.request
 import threading
@@ -65,7 +67,7 @@ def process_ins_param(dis, param):
 		if param.seg is None:
 			if param.addr in dis.data_labels: return dis.data_labels[param.addr]
 		else:
-			addr = (param.seg << 16) | param.addr
+			addr = (param.seg.value << 16) | param.addr.value
 			if addr in dis.labels: return dis.labels[addr][1]
 	elif type(param) == disas.DSRPrefix:
 		if type(param.dsr) == disas.Num and type(param.item) == disas.Address:
@@ -78,10 +80,11 @@ def process_ins_param(dis, param):
 tk.Tk.report_callback_exception = report_error
 
 class GUI:
-	def __init__(self, window):
+	def __init__(self, window, args):
 		self.version = version
 
 		self.window = window
+		self.args = args
 
 		self.temp_path = temp_path
 
@@ -147,12 +150,12 @@ Do you want to continue?\
 
 		self.menubar()
 
-		ttk.Label(text='Disassembly', font=self.bold_font).pack()
+		self.make_canvas()
+
+	def make_canvas(self):
 		self.canvas = tk.Canvas()
-		self.canvas.pack(side = 'left', fill = 'both', expand = True)
-		scrollbar = ttk.Scrollbar(orient = 'vertical', command = self.canvas.yview)
-		scrollbar.pack(side = 'right', fill = 'y')
-		self.canvas.configure(yscrollcommand = scrollbar.set)
+		self.canvas_scrollbar = ttk.Scrollbar(orient = 'vertical', command = self.canvas.yview)
+		self.canvas.configure(yscrollcommand = self.canvas_scrollbar.set)
 		self.canvas.bind('<MouseWheel>', self.scrollwheel)
 
 	def scrollwheel(self, e):
@@ -305,6 +308,8 @@ Do you want to continue?\
 		self.window.geometry(f'{self.display_w}x{self.display_h}')
 		self.window.bind('<F5>', lambda: self.refresh(True))
 		self.window.bind('<F12>', self.version_details)
+		self.window.bind('<Control-i>', lambda e: self.load_file())
+		self.window.bind('<Control-I>', lambda e: self.load_file())
 		self.window.option_add('*tearOff', False)
 		self.set_title()
 		# TODO: uncomment this when you actually have an icon.ico/xbm file
@@ -405,7 +410,11 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		file_menu.add_command(label = 'Save project', accelerator = 'Ctrl+S', state = 'disabled')
 		file_menu.add_command(label = 'Save project as...', accelerator = 'Ctrl+Shift+S', state = 'disabled')
 		file_menu.add_separator()
-		file_menu.add_command(label = 'Import...', accelerator = 'Ctrl+I', state = 'disabled')
+		file_menu.add_command(label = 'Import...', accelerator = 'Ctrl+I', command = self.load_file)
+		export_menu = tk.Menu(file_menu)
+		export_menu.add_command(label = 'As OMFU8 assembly...', command = self.export_omf)
+		export_menu.add_command(label = 'As ELF assembly...', state = 'disabled')
+		file_menu.add_cascade(label='Export', menu=export_menu, state = 'normal' if len(self.dis.filename) > 0 else 'disabled')
 		file_menu.add_separator()
 		file_menu.add_command(label='Exit', command=self.quit)
 		menubar.add_cascade(label='File', menu=file_menu)
@@ -429,7 +438,7 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 			settings_menu.add_separator()
 			debug_menu = tk.Menu(settings_menu)
 			
-			experimental_menu = tk.Menu()
+			experimental_menu = tk.Menu(debug_menu)
 			experimental_menu.add_command(label = 'These settings may or may not work properly.', state = 'disabled')
 			experimental_menu.add_command(label = 'Use these settings with caution.', state = 'disabled')
 			experimental_menu.add_separator()
@@ -459,25 +468,40 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		"""
 
 		self.window.update()
-
-		self.load_file('rom.bin')
-
-		self.draw_disas()
-
 		self.set_title()
+
+		if self.args.f_import is None:
+			ttk.Label(text = 'Welcome to PyU8disasX!', font = self.bold_font).pack()
+			ttk.Label(text = '''\
+This is a very early version of PyU8disasX that includes basic functions such as importing binary files and exporting assembly files.
+More features will be added in the future.
+
+To start, load a binary file with File > Import... (Ctrl+I).''', justify = 'center').pack()
+		else: self.load_file(self.args.f_import)
+
 		self.window.mainloop()
 
-	def load_file(self, file):
-		self.dis.load(file)
-		self.dis.disassemble()
+	def load_file(self, file = ''):
+		if len(file) == 0: file = tk.filedialog.askopenfilename(title = 'Import', initialdir = os.getcwd(), filetypes = (('Binary Files', '*.bin'), ('All Files', '*.*')), defaultextension = '.bin')
+
+		if len(file) > 0:
+			self.set_title(os.path.basename(file))
+			self.dis.load(file)
+			self.dis.disassemble()
+			self.draw_disas()
 
 	def draw_disas(self):
 		mono = tk.font.Font(font = 'TkFixedFont').actual()
 
-		self.canvas.delete('all')
+		self.refresh()
+		self.make_canvas()
+		head = ttk.Label(text = 'Please wait', font = self.bold_font); head.pack()
+		body = ttk.Label(text = 'Disassembling... This may take a while.'); body.pack()
+		self.window.update()
+
 		y = 0
-		pb = Progressbar(self, len(self.dis.code), 'Disassembling')
 		for addr, ins in self.dis.code.items():
+			self.window.update()
 			if addr in self.dis.labels:
 				l = self.dis.labels[addr]
 				if l[0] == disas.labeltype.FUN: y += 20
@@ -505,20 +529,28 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 						self.canvas.tag_bind(s_op, '<Button-1>', lambda e, adr = adr: self._canvas_moveto_address(adr, False))
 					self.canvas.tag_bind(s_op, '<Enter>', lambda e, tag = s_op: self._canvas_enter(tag))
 					self.canvas.tag_bind(s_op, '<Leave>', lambda e, tag = s_op: self._canvas_leave(tag))
-				else:
+					self.canvas.tag_bind(s_op, '<Button-3>', self.do_context_menu)
+				elif type(op) == disas.Register:
+					s_op = self.canvas.create_text(opx, y, anchor = 'nw', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
+				else: 
 					s_op = self.canvas.create_text(opx, y, anchor = 'nw', text = op, tag = f'i_{addr:05X}_{i+1}', font = 'TkFixedFont')
 					self.canvas.tag_bind(s_op, '<Enter>', lambda e, tag = s_op: self._canvas_enter(tag))
 					self.canvas.tag_bind(s_op, '<Leave>', lambda e, tag = s_op: self._canvas_leave(tag))
+					self.canvas.tag_bind(s_op, '<Button-3>', self.do_context_menu)
 				opx = self.canvas.bbox(s_op)[2]
 			y += 20
-			pb.inc()
 		self.canvas.config(scrollregion = self.canvas.bbox('all'))
+
+		body.destroy()
+		head['text'] = 'Disassembly'
+		self.canvas_scrollbar.pack(side = 'right', fill = 'y')
+		self.canvas.pack(side = 'left', fill = 'both', expand = True)
+		self.window.update()
 
 	def replace_bcond(self):
 		bccond = self.bc_cond_tk.get()
 		if bccond and not self.bc_cond:
-			pb = Progressbar(self, len(self.dis.conds), 'Bcond Radr -> BC cond, Radr')
-			for addr in self.dis.conds:
+			for addr in Progressbar(self, self.dis.conds, 'Bcond Radr -> BC cond, Radr'):
 				instr = self.dis.code[addr][1]
 				self.canvas.itemconfigure(f'i_{addr:05X}_0', text = 'BC ')
 				self.canvas.itemconfigure(f'i_{addr:05X}_1', text = instr[1])
@@ -529,14 +561,12 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 				self._canvas_update_bbox(f'i_{addr:05X}_2', f'i_{addr:05X}_12')
 				pb.inc()
 		elif not bccond and self.bc_cond:
-			pb = Progressbar(self, len(self.dis.conds), 'BC cond, Radr -> Bcond Radr')
-			for addr in self.dis.conds:
+			for addr in Progressbar(self, self.dis.conds, 'BC cond, Radr -> Bcond Radr'):
 				instr = self.dis.code[addr][1]
 				self.canvas.itemconfigure(f'i_{addr:05X}_0', text = f'B{instr[1]} ')
 				self.canvas.itemconfigure(f'i_{addr:05X}_1', text = '')
 				self.canvas.itemconfigure(f'i_{addr:05X}_12', text = '')
 				self._canvas_update_bbox(f'i_{addr:05X}_2', f'i_{addr:05X}_0')
-				pb.inc()
 
 		self.bc_cond = bccond
 
@@ -544,6 +574,10 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		item = self.canvas.find_withtag('current')
 		tags = self.canvas.gettags(item)
 		return tags[0]
+
+	def _canvas_update_bbox(self, tag1, tag2):
+		box = self.canvas.bbox(tag2)
+		self.canvas.coords(tag1, box[2], box[1])
 
 	def _canvas_enter(self, tag): self.canvas.itemconfigure(tag, fill = 'blue')
 
@@ -555,15 +589,84 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 			_, _, _, scroll_hi = map(int, self.canvas.cget('scrollregion').split())
 			self.canvas.yview_moveto((bbox[1] - (40 if has_label else 20)) / scroll_hi)
 
+	def export_omf(self):
+		f = tk.filedialog.asksaveasfile(title = 'Export as OMFU8', initialdir = os.getcwd(), initialfile = 'rom.asm', filetypes = (('Assembly Files', '*.asm'), ('All Files', '*.*')), defaultextension = '.asm')
+		if f is None: return
+		f.write('TYPE(foo)  ; Replace with DCL name (see Section 5.1.1 of MACU8 User\'s Manual)\nMODEL LARGE\n\n')
+		l = math.ceil(max(len(v) for v in self.dis.data_labels.values()) / 4) * 4
+		equs = ''
+		extrns = ''
+		self.dis.data_labels = dict(sorted(self.dis.data_labels.items()))
+		for k, v in self.dis.data_labels.items():
+			tabs = '\t'*math.ceil((l - len(v)) / 4)
+			if k >= 0x8000: equs += f'{v}{tabs}EQU {"" if hex(k)[2].isnumeric() else "0"}{k:04X}H\n'
+			else: extrns += f'EXTRN DATA\t: {v}{tabs}; {k:05X}\n'
+
+		f.write(f'{equs}\n{extrns}\n')
+
+		for addr, ins in self.dis.code.items():
+			if addr in self.dis.labels:
+				if self.dis.labels[addr][0] == disas.labeltype.FUN: f.write(f'\n; {addr:05X}\n')
+				f.write(f'{self.dis.labels[addr][1]}:\n')
+			instrl = ins[0]
+			instr = ins[1]
+			tab = '\t'
+			#string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
+			string = f'\t{instr[0]}'
+			if len(instr) >= 2: string += ' ' + process_ins_param(self.dis, instr[1])
+			if len(instr) == 3: string += ', ' + process_ins_param(self.dis, instr[2])
+			f.write(string + '\n')
+
+		f.write('\n')
+		for k, v in dict(sorted(self.dis.labels.items())).items():
+			if v[0] == disas.labeltype.FUN: f.write(f'PUBLIC {v[1]}\n')
+
+		f.write('\nEND\n')
+
+		f.close()
+		tk.messagebox.showinfo('Export as OMFU8', 'The export was successful.')
+
+	def do_context_menu(self, event):
+		tag = self._canvas_get_tag()
+
+		m = re.match(r'^i_([0-9A-F]{5})_(\d)$', tag)
+		if m is None: return
+
+		addr = int(m.group(1), 16)
+		idx = int(m.group(2))
+
+		param = self.dis.code[addr][1][idx]
+		if type(param) == disas.Num:
+			numdisp = tk.IntVar(value = param.disp)
+
+			menu = tk.Menu()
+			if disas.conv_sign(param.value, param.bits) < 0: menu.add_command(label = 'Invert sign', command = lambda: self.invert_bool(addr, idx, 'sign'))
+			numdisp_menu = tk.Menu(menu)
+			numdisp_menu.add_radiobutton(label = 'Hexadecimal', variable = numdisp, value = 0, command = lambda: self.set_param_attr(addr, idx, 'disp', 0))
+			numdisp_menu.add_radiobutton(label = 'Decimal', variable = numdisp, value = 1, command = lambda: self.set_param_attr(addr, idx, 'disp', 1))
+			numdisp_menu.add_radiobutton(label = 'Octal', variable = numdisp, value = 2, command = lambda: self.set_param_attr(addr, idx, 'disp', 2))
+			numdisp_menu.add_radiobutton(label = 'Binary', variable = numdisp, value = 3, command = lambda: self.set_param_attr(addr, idx, 'disp', 3))
+			numdisp_menu.add_radiobutton(label = 'Character constant', variable = numdisp, value = 4, command = lambda: self.set_param_attr(addr, idx, 'disp', 4))
+			menu.add_cascade(label = 'Display as', menu = numdisp_menu)
+			try: menu.tk_popup(event.x_root, event.y_root)
+			finally: menu.grab_release()
+
+	def invert_bool(self, addr, idx, name): self.set_param_attr(addr, idx, name, not getattr(self.dis.code[addr][1][idx], name))
+
+	def set_param_attr(self, addr, idx, name, value):
+		setattr(self.dis.code[addr][1][idx], name, value)
+		self.canvas.itemconfigure(f'i_{addr:05X}_{idx}', text = self.dis.code[addr][1][idx])
+
 class Progressbar(tk.Toplevel):
-	def __init__(self, gui, length, text = None, *args, **kwargs):
+	def __init__(self, gui, iterable, text = None, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.resizable(False, False)
 		self.protocol('WM_DELETE_WINDOW', lambda: 'break')
 		self.title('Working...')
 		ttk.Label(self, text = text).pack()
-		self.__length = length
-		self.__bar = ttk.Progressbar(self, orient='horizontal', length = 100, maximum=length, mode='determinate')
+		self.__iterator = iter(iterable)
+		self.__length = len(iterable)
+		self.__bar = ttk.Progressbar(self, orient='horizontal', length = 100, maximum=self.__length, mode='determinate')
 		self.__bar.pack(side = 'left')
 		self.__lab = ttk.Label(self, text = '0%')
 		self.__lab.pack(side = 'right')
@@ -573,14 +676,24 @@ class Progressbar(tk.Toplevel):
 		gui.scrolling = False
 		self.update()
 
-	def inc(self):
-		self.__bar['value'] += 1
-		self.__lab['text'] = f'{int(self.__bar["value"]/self.__length*100)}%'
-		self.update()
-		if self.__bar['value'] == self.__length:
+	def __iter__(self): return self
+
+	def __next__(self):
+		if not self.winfo_exists(): raise StopIteration
+		try:
+			value = next(self.__iterator)
+			self.after(0, self.update())
+			return value
+		except StopIteration:
 			self.gui.scrolling = True
 			self.grab_release()
 			self.destroy()
+			raise
+
+	def update(self):
+		self.__bar['value'] += 1
+		self.__lab['text'] = f'{int(self.__bar["value"]/self.__length*100)}%'
+		super().update()
 
 class UpdaterGUI:
 	def __init__(self, gui):
