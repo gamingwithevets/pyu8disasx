@@ -57,7 +57,7 @@ class Num:
 		self.disp = numdisp.HEX
 		self.sign = sign
 
-	def __repr__(self): return f'{type(self).__name__}(bits={self.bits}, value={self.value}, disp={numdisp(self.disp).name})'
+	def __repr__(self): return f'{type(self).__name__}(bits={self.bits}, value={self.value}, disp={numdisp(self.disp).name}, sign={self.sign})'
 	def __str__(self):
 		if self.disp == numdisp.CHAR:
 			if self.bits != 8: raise ValueError('character constant display can only be used with bit length 8')
@@ -67,7 +67,7 @@ class Num:
 			if self.disp == numdisp.HEX: string = f'{value:X}H'
 			elif self.disp == numdisp.DEC: string = f'{value}'
 			elif self.disp == numdisp.OCT: string = f'{value:o}O'
-			elif self.disp == numdisp.BIN: string = f'{value:b}B'
+			elif self.disp == numdisp.BIN: string = f'{value:08b}B'
 			if string[0] == '-':
 				if not string[1].isnumeric(): string = f'-0{string[1:]}'
 			elif not string[0].isnumeric(): string = f'0{string}'
@@ -294,7 +294,7 @@ class Disassembly:
 		['ST',		0x9057,	[0x0800, 8,  0x0008, RegHandler],		[0x0000, 0,  0xF001, MemHandler]],
 
 		# Control RegHandler Access Instructions
-		['ADD',		0xe100,	[0x0000, 0,  0x0024, RegCtrlHandler],	[0x00ff, 0,  0x0007, NumHandler]],
+		['ADD',		0xe100,	[0x0000, 0,  0x0024, RegCtrlHandler],	[0x00ff, 0,  0x0008, NumHandler]],
 		['MOV',		0xa00f,	[0x0000, 0,  0x0010, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]],
 		['MOV',		0xa00d,	[0x0000, 0,  0x0021, RegCtrlHandler],	[0x0f00, 8,  0x0002, RegHandler]],
 		['MOV',		0xa00c,	[0x0000, 0,  0x0013, RegCtrlHandler],	[0x00f0, 4,  0x0001, RegHandler]],
@@ -379,19 +379,16 @@ class Disassembly:
 		['ICESWI',	0xfeff,	None,									None],  # Triggers emulator software interrupt
 	]
 
-	def __init__(self, code_bytes = None):
-		if code_bytes is not None:
-			if type(code_bytes) not in (bytes, bytearray): raise TypeError("'code_bytes' argument must be a bytes-like object")
-			if len(code_bytes) % 2 != 0: raise ValueError("'code_bytes' argument must have even length")
-			if len(code_bytes) == 0: raise ValueError("'code_bytes' argument must not be empty")
-
+	def __init__(self, code_bytes = None, pad_word = 0xffff):
 		self.code = {}
 		self.conds = []
 		self.labels = {}
 		self.data_labels = {}
 		self.filename = ''
 		
-		self.__code_bytes = code_bytes
+		self.__regions = []
+		if code_bytes is not None: self.add_region(0, code_bytes)
+		self.__pad_word = pad_word
 		self.pc = 0
 		self.r = [0]*16
 		self.__queue = []
@@ -421,14 +418,14 @@ class Disassembly:
 			value >>= 8
 
 	def disassemble(self):
-		if self.__code_bytes is None: raise ValueError('no binary loaded')
+		if not len(self.__regions): raise ValueError('no code regions loaded')
 
 		if not self.__disas:
-			self.labels[self.read_word(2)] = [labeltype.FUN, 'start']
-			self.labels[self.read_word(4)] = [labeltype.FUN, 'brk']
+			self.labels[self.read_word(2)] = [labeltype.FUN, '$$start_up']
+			self.labels[self.read_word(4)] = [labeltype.FUN, '$$brk_reset']
 			self.queue_add(self.read_word(4))
 			self.queue_add(self.read_word(2))
-		else: self.__disas = True
+			self.__disas = True
 
 		instr = None
 		prev_instr = None
@@ -463,14 +460,33 @@ class Disassembly:
 						instr[-1] = DSRPrefix(dsr_src, instr[-1])
 						dsr_src = None
 					if len(instr) > 1 and instr[0] in ('L', 'ST', 'SB', 'TB', 'RB'):
-						if type(instr[-1]) == Address: self.data_labels[instr[-1].addr.value] = f'd_{instr[-1].addr.value:05X}'
+						if type(instr[-1]) == Address:
+							addr = instr[-1].addr.value
+							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}'
 						elif type(instr[-1]) == DSRPrefix and type(instr[-1].dsr) == Num and type(instr[-1].item) == Address:
 							addr = (instr[-1].dsr.value << 16) | instr[-1].item.addr.value
-							self.data_labels[addr] = f'd_{addr:05X}'
+							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}'
 						elif type(instr[-1]) == BitOffset and type(instr[-1].item) == Address:
-							self.data_labels[instr[-1].item.addr.value] = f'd_{instr[-1].item.addr.value:05X}'
+							addr = instr[-1].item.addr.value
+							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}'
 
 			except RuntimeError: instr = ['DW', Num(16, instr_bytes, False)]
+
+			if instr[0] == 'MOV' and type(instr[1]) == Register and instr[1].size == 1 and type(instr[2]) == Num \
+			and prev_instr[0] == 'MOV' and type(prev_instr[1]) == Register and prev_instr[1].size == 1 and type(prev_instr[2]) == Num \
+			and instr[1].n == prev_instr[1].n + (1 if prev_instr[1].n % 2 == 0 else -1):
+				instr[2].sign = False
+				prev_instr[2].sign = False
+
+			if instr[0] == 'ADDC' and type(instr[1]) == Register and instr[1].size == 1 and type(instr[2]) == Num \
+			and prev_instr[0] == 'ADD' and type(prev_instr[1]) == Register and prev_instr[1].size == 1 and type(prev_instr[2]) == Num \
+			and instr[1].n == prev_instr[1].n + 1:
+				instr[2].sign = False
+				prev_instr[2].sign = False
+
+			if instr[0] in ('AND', 'OR', 'XOR') and type(instr[2]) == Num:
+				instr[2].sign = False
+				instr[2].disp = numdisp.BIN
 
 			ins_len = len(self.__instrl)*2
 			if dsr_src is None: self.code[self.pc-ins_len] = [self.__instrl, instr]
@@ -481,6 +497,7 @@ class Disassembly:
 
 			self.__instrl = []
 			
+			if instr[0] == 'EXTBW': del instr[2]
 			if instr[0] == 'MOV' and type(instr[1]) == Register and type(instr[2]) != str: self.set_r(instr[1].size, instr[1].n, instr[2].value if type(instr[2]) == Num else self.get_r(instr[2].size, instr[2].n))
 
 			if instr[0] == 'PUSH' and type(instr[1]) == Register:
@@ -500,7 +517,7 @@ class Disassembly:
 				self.queue_add(radr)
 				if instr[0] == 'BC' and instr[1] != 'AL': self.queue_add(self.pc)
 			if instr[0] == 'BL' and type(instr[1]) == Address:
-				cadr = instr[-1].get_combined()
+				cadr = instr[-1].get_combined() & 0xffffe
 				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'_f_{cadr:05X}']
 				self.queue_add(cadr)
 				self.queue_add(self.pc)
@@ -531,34 +548,53 @@ class Disassembly:
 						adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
 						while adr_s <= adr <= adr_l:
 							#print(hex(adr))
+							if adr not in self.labels: self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
 							self.__queue.append(adr)
 							self.__queueregs.append(r)
 							i += 4
 							adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
 					else:
 						seg = entry[2]
-						adr = seg + self.read_word(a+i)
-						while adr_s <= adr <= adr_l and adr & 0xffff > 0:
+						adr = (seg << 8) | self.read_word(a+i)
+						j = 0
+						while adr_s <= adr <= adr_l and adr & 0xffff > 0 and adr % 2 == 0:
 							#print(hex(adr))
-							if adr not in self.labels: self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
+							if adr in self.labels and self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
+							else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
 							self.__queue.append(adr)
 							self.__queueregs.append(r)
 							i += 2
 							adr = seg + self.read_word(a+i)
+							j += 1
 
 		self.code = dict(sorted(self.code.items()))
 
+	def add_region(self, start, code_bytes):
+		if type(code_bytes) not in (bytes, bytearray): raise TypeError("'code_bytes' argument must be a bytes-like object")
+		if len(code_bytes) % 2 != 0: raise ValueError("'code_bytes' argument must have even length")
+		if len(code_bytes) == 0: raise ValueError("'code_bytes' argument must not be empty")
+		if start + len(code_bytes) > 0x100000: raise ValueError("region exceeds code memory limit")
+		if start < 0: raise ValueError('start address must not be negative')
+
+		self.__regions.append((start, code_bytes))
+
+	def max(self): return math.ceil(max(t[0] for t in self.__regions) / 0x10000) * 0x10000
+
 	def queue_add(self, addr):
-		if self.__code_bytes is None: raise ValueError('no binary loaded')
-		addr %= len(self.__code_bytes)
+		if not len(self.__regions): raise ValueError('no code regions loaded')
+		if addr < 0: raise ValueError('address must not be negative')
 		addr &= 0xffffe
 		if addr not in self.code and addr not in self.__queue:
 			self.__queue.append(addr)
 			self.__queueregs.append(self.r.copy())
 
 	def read_word(self, addr):
-		if self.__code_bytes is None: raise ValueError('no binary loaded')
-		return (self.__code_bytes[addr+1] << 8) | self.__code_bytes[addr]
+		if not len(self.__regions): raise ValueError('no code regions loaded')
+		if addr < 0: raise ValueError('address must not be negative')
+		if self.max() < addr:
+			for start, code_bytes in self.__regions:
+				if addr >= start and addr < start + len(code_bytes): return (code_bytes[addr-start+1] << 8) | code_bytes[addr-start]
+		return self.__pad_word
 
 	def fetch(self):
 		a = self.read_word(self.pc)
@@ -584,8 +620,8 @@ class Disassembly:
 
 		raise RuntimeError
 
-	def load(self, file):
+	def load(self, file, start = 0):
 		self.filename = file
-		with open(file, 'rb') as f: self.__code_bytes = f.read()
+		with open(file, 'rb') as f: self.add_region(file, f.read())
 
 	def __repr__(self): return f'{type(self).__name__}(...)'

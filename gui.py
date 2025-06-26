@@ -590,7 +590,7 @@ To start, load a binary file with File > Import... (Ctrl+I).''', justify = 'cent
 			self.canvas.yview_moveto((bbox[1] - (40 if has_label else 20)) / scroll_hi)
 
 	def export_omf(self):
-		f = tk.filedialog.asksaveasfile(title = 'Export as OMFU8', initialdir = os.getcwd(), initialfile = 'rom.asm', filetypes = (('Assembly Files', '*.asm'), ('All Files', '*.*')), defaultextension = '.asm')
+		f = tk.filedialog.asksaveasfile(title = 'Export as OMFU8', initialdir = os.getcwd(), initialfile = f'{os.path.splitext(self.dis.filename)[0]}.asm', filetypes = (('Assembly Files', '*.asm'), ('All Files', '*.*')), defaultextension = '.asm')
 		if f is None: return
 		f.write('TYPE(foo)  ; Replace with DCL name (see Section 5.1.1 of MACU8 User\'s Manual)\nMODEL LARGE\n\n')
 		l = math.ceil(max(len(v) for v in self.dis.data_labels.values()) / 4) * 4
@@ -598,7 +598,7 @@ To start, load a binary file with File > Import... (Ctrl+I).''', justify = 'cent
 		extrns = ''
 		self.dis.data_labels = dict(sorted(self.dis.data_labels.items()))
 		for k, v in self.dis.data_labels.items():
-			tabs = '\t'*math.ceil((l - len(v)) / 4)
+			tabs = '\t'*(1+math.ceil((l - len(v)) / 4))
 			if k >= 0x8000: equs += f'{v}{tabs}EQU {"" if hex(k)[2].isnumeric() else "0"}{k:04X}H\n'
 			else: extrns += f'EXTRN DATA\t: {v}{tabs}; {k:05X}\n'
 
