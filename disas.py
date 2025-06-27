@@ -427,8 +427,8 @@ class Disassembly:
 			self.queue_add(self.read_word(2))
 			self.__disas = True
 
-		instr = None
-		prev_instr = None
+		instr = ['', '', '']
+		prev_instr = ['', '', '']
 		dsr_src = None
 		possible_jmp_table_adrs = None
 
@@ -548,7 +548,7 @@ class Disassembly:
 						adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
 						while adr_s <= adr <= adr_l:
 							#print(hex(adr))
-							if adr not in self.labels: self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
+							if adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
 							self.__queue.append(adr)
 							self.__queueregs.append(r)
 							i += 4
@@ -559,7 +559,7 @@ class Disassembly:
 						j = 0
 						while adr_s <= adr <= adr_l and adr & 0xffff > 0 and adr % 2 == 0:
 							#print(hex(adr))
-							if adr in self.labels and self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
+							if adr in self.labels and self.labels[adr][0] == labeltype.LAB and self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
 							else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
 							self.__queue.append(adr)
 							self.__queueregs.append(r)
@@ -579,6 +579,27 @@ class Disassembly:
 		self.__regions.append((start, code_bytes))
 
 	def max(self): return math.ceil(max(t[0] for t in self.__regions) / 0x10000) * 0x10000
+
+	def jmptable_add(self, addr, size, far = False, seg = 0):
+		r = [0]*16
+		a = (seg << 16) | addr
+		i = 0
+		#print('='*5, hex(a), '='*5)
+		if far:
+			for i in range(0, size*4, 4):
+				adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
+				if adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
+				self.__queue.append(adr)
+				self.__queueregs.append(r)
+		else:
+			j = 0
+			for i in range(0, size*2, 2):
+				adr = (seg << 16) | self.read_word(a+i)
+				if adr in self.labels and self.labels[adr][0] == labeltype.LAB and self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
+				else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
+				self.__queue.append(adr)
+				self.__queueregs.append(r)
+				j += 1
 
 	def queue_add(self, addr):
 		if not len(self.__regions): raise ValueError('no code regions loaded')
