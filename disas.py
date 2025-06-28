@@ -529,10 +529,10 @@ class Disassembly:
 							self.__jump_tablesregs.append(self.r.copy())
 							possible_jmp_table_adrs = None
 			elif instr[0] == 'RT' or instr[0] == 'RTI' or (instr[0] == 'POP' and type(instr[1]) == list and 'PC' in instr[1]):
-				if possible_jmp_table_adrs:
+				if instr[0] == 'POP' and possible_jmp_table_adrs:
 					self.__jump_tables.append([possible_jmp_table_adrs, True])
 					self.__jump_tablesregs.append(self.r.copy())
-				possible_jmp_table_adrs = None
+					possible_jmp_table_adrs = None
 			else: self.queue_add(self.pc)
 
 			if len(self.__queue) == 0:
