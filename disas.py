@@ -559,8 +559,9 @@ class Disassembly:
 						j = 0
 						while adr_s <= adr <= adr_l and adr & 0xffff > 0 and adr % 2 == 0:
 							#print(hex(adr))
-							if adr in self.labels and self.labels[adr][0] == labeltype.LAB and self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
-							else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
+							if adr in self.labels and self.labels[adr][0] != labeltype.FUN:
+								if self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
+								else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
 							self.__queue.append(adr)
 							self.__queueregs.append(r)
 							i += 2
@@ -595,8 +596,9 @@ class Disassembly:
 			j = 0
 			for i in range(0, size*2, 2):
 				adr = (seg << 16) | self.read_word(a+i)
-				if adr in self.labels and self.labels[adr][0] == labeltype.LAB and self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
-				else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
+				if adr in self.labels and self.labels[adr][0] != labeltype.FUN:
+					if self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
+					else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
 				self.__queue.append(adr)
 				self.__queueregs.append(r)
 				j += 1
@@ -643,6 +645,6 @@ class Disassembly:
 
 	def load(self, file, start = 0):
 		self.filename = file
-		with open(file, 'rb') as f: self.add_region(file, f.read())
+		with open(file, 'rb') as f: self.add_region(start, f.read())
 
 	def __repr__(self): return f'{type(self).__name__}(...)'
