@@ -65,14 +65,18 @@ def process_ins_param(dis, param):
 	if type(param) == list: return ', '.join(param)
 	elif type(param) == disas.Address:
 		if param.seg is None:
-			if param.addr in dis.data_labels: return dis.data_labels[param.addr]
+			addr = param.addr.value
+			if addr in dis.data_labels: return dis.data_labels[addr]
 		else:
 			addr = (param.seg.value << 16) | param.addr.value
 			if addr in dis.labels: return dis.labels[addr][1]
 	elif type(param) == disas.DSRPrefix:
-		if type(param.dsr) == disas.Num and type(param.item) == disas.Address:
-			addr = (param.dsr.value << 16) | param.item.addr
+		if type(param.dsr) == disas.Num and type(param.item) == disas.Num:
+			addr = (param.dsr.value << 16) | param.item.value
 			if addr in dis.data_labels: return dis.data_labels[addr]
+	elif type(param) == disas.BitOffset and type(param.item) == disas.Address:
+		addr = param.item.addr.value
+		if addr in dis.data_labels: return f'{dis.data_labels[addr]}.{param.bit}'
 
 	return str(param)
 

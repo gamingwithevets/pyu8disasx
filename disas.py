@@ -381,7 +381,7 @@ class Disassembly:
 
 	def __init__(self, code_bytes = None, pad_word = 0xffff):
 		self.code = {}
-		self.conds = []
+		#self.conds = []
 		self.labels = {}
 		self.data_labels = {}
 		self.filename = ''
@@ -454,7 +454,7 @@ class Disassembly:
 					instr = [_instr[0]]
 					if _instr[2] is not None: instr.append(_instr[2][3](self, _instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1]))
 					if _instr[3] is not None: instr.append(_instr[3][3](self, _instr[3][2], (instr_bytes & _instr[3][0]) >> _instr[3][1]))
-					if instr[0] == 'BC': self.conds.append(self.pc-2)
+					#if instr[0] == 'BC': self.conds.append(self.pc-2)
 					if instr[0] in ('SB', 'TB', 'RB'): instr[1] = BitOffset(instr[1], instr[2].value); instr.pop(2)
 					if len(instr) > 1 and type(instr[-1]) in (Address, Pointer) and _instr[len(instr)][3] == MemHandler and dsr_src is not None:
 						instr[-1] = DSRPrefix(dsr_src, instr[-1])
@@ -505,12 +505,13 @@ class Disassembly:
 				else: possible_jmp_table_adrs = None
 			if instr[0] == 'PUSH' and type(instr[1]) == list and 'LR' in instr[1]: possible_jmp_table_adrs = None
 			if instr[0] in ('B', 'BL') and type(instr[1]) == Register:
-				if prev_instr[0] == 'L' and prev_instr[1] == instr[1] and prev_instr[2].disp is not None: ptr_adr = prev_instr[2].disp.value
-				else: ptr_adr = self.get_r(2, instr[1].n)
-				#print(hex(self.pc-2), hex(ptr_adr))
-				if ptr_adr >= 6:
-					self.__jump_tables.append([ptr_adr, False, (self.pc-2) & 0x10000])
-					self.__jump_tablesregs.append(self.r.copy())
+				if prev_instr[0] == 'L' and prev_instr[1] == instr[1]:
+					if prev_instr[2].disp is not None: ptr_adr = prev_instr[2].disp.value
+					else: ptr_adr = self.get_r(2, instr[1].n)
+					#print(hex(self.pc-2), hex(ptr_adr))
+					if ptr_adr >= 6:
+						self.__jump_tables.append([ptr_adr, False, (self.pc-ins_len) >> 16, self.pc-ins_len])
+						self.__jump_tablesregs.append(self.r.copy())
 			if (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
 				radr = instr[-1].get_combined()
 				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'_$j_{radr:05x}']
@@ -555,13 +556,13 @@ class Disassembly:
 							adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
 					else:
 						seg = entry[2]
-						adr = (seg << 8) | self.read_word(a+i)
+						adr = (seg << 16) | self.read_word(a+i)
+						calladdr = entry[3]
 						j = 0
 						while adr_s <= adr <= adr_l and adr & 0xffff > 0 and adr % 2 == 0:
 							#print(hex(adr))
-							if adr in self.labels and self.labels[adr][0] != labeltype.FUN:
-								if self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
-								else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
+							if adr in self.labels and self.labels[adr][0] != labeltype.FUN and self.labels[adr][1].startswith(f'_$switch_{calladdr:05x}'): self.labels[adr][1] += f'_{j}'
+							elif adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.LAB, f'_$switch_{calladdr:05x}_{adr:05x}_case{j}']
 							self.__queue.append(adr)
 							self.__queueregs.append(r)
 							i += 2
@@ -581,7 +582,7 @@ class Disassembly:
 
 	def max(self): return math.ceil(max(t[0] for t in self.__regions) / 0x10000) * 0x10000
 
-	def jmptable_add(self, addr, size, far = False, seg = 0):
+	def jmptable_add(self, addr, size, far = False, seg = 0, calladdr = 0):
 		r = [0]*16
 		a = (seg << 16) | addr
 		i = 0
@@ -596,9 +597,8 @@ class Disassembly:
 			j = 0
 			for i in range(0, size*2, 2):
 				adr = (seg << 16) | self.read_word(a+i)
-				if adr in self.labels and self.labels[adr][0] != labeltype.FUN:
-					if self.labels[adr][1].startswith('_$switch'): self.labels[adr][1] += f'_{j}'
-					else: self.labels[adr] = [labeltype.LAB, f'_$switch_{adr:05x}_case{j}']
+				if adr in self.labels and self.labels[adr][0] != labeltype.FUN and self.labels[adr][1].startswith(f'_$switch_{calladdr:05x}'): self.labels[adr][1] += f'_{j}'
+				elif adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.LAB, f'_$switch_{calladdr:05x}_{adr:05x}_case{j}']
 				self.__queue.append(adr)
 				self.__queueregs.append(r)
 				j += 1
