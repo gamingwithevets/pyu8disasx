@@ -601,7 +601,6 @@ class Disassembly:
 				adr = (jmpseg << 16) | self.read_word(a+i)
 				if adr in self.labels and self.labels[adr][0] != labeltype.FUN and self.labels[adr][1].startswith(f'_$switch_{calladdr:05x}'): self.labels[adr][1] += f'_{j}'
 				elif adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.LAB, f'_$switch_{calladdr:05x}_{adr:05x}_case{j}']
-				print(hex(adr))
 				self.__queue.append(adr)
 				self.__queueregs.append(r)
 				j += 1
