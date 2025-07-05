@@ -580,6 +580,8 @@ class Disassembly:
 
 		self.__regions.append((start, code_bytes))
 
+	def clear_all_regions(self): self.__regions.clear()
+
 	def max(self): return math.ceil(max(t[0] for t in self.__regions) / 0x10000) * 0x10000
 
 	def jmptable_add(self, addr, size, far = False, seg = 0, calladdr = 0):
