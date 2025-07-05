@@ -22,15 +22,19 @@ class labeltype(IntEnum):
 
 class Register:
 	__reg_prefixes = {1: 'R', 2: 'ER', 4: 'XR', 8: 'QR'}
-	__slots__ = ('size', 'n')
-	def __init__(self, size, n):
+	__reg_ptr_prefixes = {12: 'BP', 14: 'FP'}
+	__slots__ = ('size', 'n', 'ptr')
+	def __init__(self, size, n, ptr = True):
 		if size not in self.__reg_prefixes.keys(): raise ValueError(f'invalid register size {size}')
 		super().__setattr__('size', size)
 		super().__setattr__('n', n & (-1 << int(math.log2(size))))
+		self.ptr = ptr
 
 	def __repr__(self): return f'{type(self).__name__}(size={self.size}, n={self.n})'
-	def __str__(self): return f'{self.__reg_prefixes[self.size]}{self.n}'
-	def __setattr__(self, name, value): raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
+	def __str__(self): return self.__reg_ptr_prefixes[self.n] if self.ptr and self.size == 2 and self.n in self.__reg_ptr_prefixes else f'{self.__reg_prefixes[self.size]}{self.n}'
+	def __setattr__(self, name, value):
+		if name == 'ptr': super().__setattr__(name, value)
+		else: raise AttributeError(f"attribute '{name}' of '{type(self).__name__}' objects is not writable")
 
 	def __eq__(self, other): return isinstance(other, Register) and self.size == other.size and self.n == other.n
 
