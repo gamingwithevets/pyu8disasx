@@ -584,7 +584,7 @@ class Disassembly:
 
 	def max(self): return math.ceil(max(t[0] for t in self.__regions) / 0x10000) * 0x10000
 
-	def jmptable_add(self, addr, size, far = False, seg = 0, calladdr = 0):
+	def jmptable_add(self, addr, size, far = False, seg = 0, jmpseg = 0, calladdr = 0):
 		r = [0]*16
 		a = (seg << 16) | addr
 		i = 0
@@ -598,9 +598,10 @@ class Disassembly:
 		else:
 			j = 0
 			for i in range(0, size*2, 2):
-				adr = (seg << 16) | self.read_word(a+i)
+				adr = (jmpseg << 16) | self.read_word(a+i)
 				if adr in self.labels and self.labels[adr][0] != labeltype.FUN and self.labels[adr][1].startswith(f'_$switch_{calladdr:05x}'): self.labels[adr][1] += f'_{j}'
 				elif adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.LAB, f'_$switch_{calladdr:05x}_{adr:05x}_case{j}']
+				print(hex(adr))
 				self.__queue.append(adr)
 				self.__queueregs.append(r)
 				j += 1
