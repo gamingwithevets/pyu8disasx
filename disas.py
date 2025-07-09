@@ -385,7 +385,7 @@ class Disassembly:
 
 	def __init__(self, code_bytes = None, pad_word = 0xffff):
 		self.code = {}
-		#self.conds = []
+		self.conds = []
 		self.labels = {}
 		self.data_labels = {}
 		self.filename = ''
@@ -458,7 +458,7 @@ class Disassembly:
 					instr = [_instr[0]]
 					if _instr[2] is not None: instr.append(_instr[2][3](self, _instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1]))
 					if _instr[3] is not None: instr.append(_instr[3][3](self, _instr[3][2], (instr_bytes & _instr[3][0]) >> _instr[3][1]))
-					#if instr[0] == 'BC': self.conds.append(self.pc-2)
+					if instr[0] == 'BC': self.conds.append(self.pc-2)
 					if instr[0] in ('SB', 'TB', 'RB'): instr[1] = BitOffset(instr[1], instr[2].value); instr.pop(2)
 					if len(instr) > 1 and type(instr[-1]) in (Address, Pointer) and _instr[len(instr)][3] == MemHandler and dsr_src is not None:
 						instr[-1] = DSRPrefix(dsr_src, instr[-1])
