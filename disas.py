@@ -588,6 +588,8 @@ class Disassembly:
 
 	def max(self): return math.ceil(max(t[0] for t in self.__regions) / 0x10000) * 0x10000
 
+	def is_queue_empty(self): return len(self.__queue) == 0
+
 	def jmptable_add(self, addr, size, far = False, seg = 0, jmpseg = 0, calladdr = 0, bl = False):
 		r = [0]*16
 		a = (seg << 16) | addr
