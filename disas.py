@@ -61,6 +61,7 @@ class Num:
 		self.disp = numdisp.HEX
 		self.sign = sign
 
+	def get(self): return conv_sign(self.value, self.bits)
 	def __repr__(self): return f'{type(self).__name__}(bits={self.bits}, value={self.value}, disp={numdisp(self.disp).name}, sign={self.sign})'
 	def __str__(self):
 		if self.disp == numdisp.CHAR:
@@ -504,8 +505,9 @@ class Disassembly:
 			if instr[0] == 'EXTBW': del instr[2]
 			if instr[0] == 'MOV' and type(instr[1]) == Register and type(instr[2]) != str: self.set_r(instr[1].size, instr[1].n, instr[2].value if type(instr[2]) == Num else self.get_r(instr[2].size, instr[2].n))
 
-			if instr[0] == 'PUSH' and type(instr[1]) == Register:
-				if prev_instr[0] == 'L' and prev_instr[1].size == 2 and prev_instr[1] == instr[1] and type(prev_instr[2]) == Pointer and prev_instr[2].disp is not None: possible_jmp_table_adrs = prev_instr[2].disp.value
+			if instr[0] == 'PUSH' and type(instr[1]) == Register and instr[1].size == 2:
+				if prev_instr[0] == 'L' and prev_instr[1] == instr[1] and type(prev_instr[2]) == Pointer \
+					and prev_instr[2].disp is not None and prev_instr[2].disp.bits == 16 and prev_instr[2].disp.get() >= 6: possible_jmp_table_adrs = prev_instr[2].disp.value
 				else: possible_jmp_table_adrs = None
 			if instr[0] == 'PUSH' and type(instr[1]) == list and 'LR' in instr[1]: possible_jmp_table_adrs = None
 			if instr[0] in ('B', 'BL') and type(instr[1]) == Register:
@@ -526,13 +528,13 @@ class Disassembly:
 				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'_f_{cadr:05X}']
 				self.queue_add(cadr)
 				self.queue_add(self.pc)
-				if cadr in self.code:
-					ins = self.code[cadr][1]
-					if ins[0] == 'POP' and type(ins[1]) == list and 'PC' in ins[1]:
-						if possible_jmp_table_adrs:
-							self.__jump_tables.append([possible_jmp_table_adrs, True])
-							self.__jump_tablesregs.append(self.r.copy())
-							possible_jmp_table_adrs = None
+				# Attempt to detect __indru8
+				is_poppc = self.code[cadr][1][0] == 'POP' and 'PC' in self.code[cadr][1][1] if cadr in self.code else self.read_word(cadr) & 0xf2ff == 0xf28e
+				if is_poppc and possible_jmp_table_adrs:
+					self.__jump_tables.append([possible_jmp_table_adrs, True])
+					self.__jump_tablesregs.append(self.r.copy())
+					possible_jmp_table_adrs = None
+					if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][1] != '__indru8'): self.labels[cadr] = [labeltype.FUN, '__indru8']
 			elif instr[0] == 'RT' or instr[0] == 'RTI' or (instr[0] == 'POP' and type(instr[1]) == list and 'PC' in instr[1]):
 				if instr[0] == 'POP' and possible_jmp_table_adrs:
 					self.__jump_tables.append([possible_jmp_table_adrs, True])
@@ -570,7 +572,7 @@ class Disassembly:
 							self.__queue.append(adr)
 							self.__queueregs.append(r)
 							i += 2
-							adr = seg + self.read_word(a+i)
+							adr = (seg << 16) | self.read_word(a+i)
 							j += 1
 
 		self.code = dict(sorted(self.code.items()))
