@@ -31,24 +31,14 @@ class disas.Register
 + Represents one of the 16 byte-sized general registers (R0 - R15) of the U8/U16 core. Can also represent one of the 8 combined word-sized general registers (ER0 - ER14), one of the 4 combined double word-sized general registers (XR0 - XR12), or one of the 2 combined quad word-sized general registers (QR0 or QR8). Attributes: `size` and `n`.
 
 ```python
-class disas.RegisterBit
+class disas.ObjectBit
 ```
-+ Represents a bit offset in one of the 16 byte-sized general registers. Attributes: `register` and `bit`.
++ Represents a bit offset in one of the 16 byte-sized general registers. Attributes: `obj` and `bit`.
 
 ```python
 class disas.Num
 ```
 + Represents a signed or unsigned number of any bit length with a customizable string output. Attributes: `bits`, `value`, `disp`, `sign`.
-
-```python
-class disas.Num8
-```
-+ An alias of `disas.Num(8, value)`.
-
-```python
-class disas.Num7
-```
-+ An alias of `disas.Num(7, value)`.
 
 ### `Register` objects
 A `Register` object represents a U8/U16 general register of byte size, word size, double word size or quad word size.
@@ -73,24 +63,24 @@ Register.n
 + In `range(0, 16, size)`.
 
 ### Register bit objects
-A `RegisterBit` object represents a bit offset of a byte-sized general register.
+A `ObjectBit` object represents a bit offset of an object.
 
 ```python
-class disas.RegisterBit(register, bit)
+class disas.ObjectBit(obj, bit)
 ```
 + All arguments are required.
 
-+ `register` must be a `Register` object with `size=1`.
++ `obj` can be any type.
 
 + `bit` must be an integer between 0 and 7.
 
 Instance attributes (read-only):
 ```python
-RegisterBit.register
+ObjectBit.obj
 ```
-+ A `Register` object of size 1.
++ The base object of the bit offset.
 ```python
-RegisterBit.bit
+ObjectBit.bit
 ```
 + In `range(8)`.
 
@@ -126,16 +116,3 @@ Num.disp
 Num.sign
 ```
 + A boolean for controlling if the string output should be signed (`True`) or unsigned (`False`). By default it is `True`.
-
-#### Subclasses
-These classes inherit the `Num` object.
-
-```python
-class disas.Num8(value)
-```
-+ Shorthand for `disas.Num(8, value)`.
-
-```python
-class disas.Num7(value)
-```
-+ Shorthand for `disas.Num(7, value)`.
