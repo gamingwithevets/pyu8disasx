@@ -507,7 +507,8 @@ class Disassembly:
 
 			if instr[0] == 'PUSH' and type(instr[1]) == Register and instr[1].size == 2:
 				if prev_instr[0] == 'L' and prev_instr[1] == instr[1] and type(prev_instr[2]) == Pointer \
-					and prev_instr[2].disp is not None and prev_instr[2].disp.bits == 16 and prev_instr[2].disp.get() >= 6: possible_jmp_table_adrs = prev_instr[2].disp.value
+					and prev_instr[2].disp is not None and prev_instr[2].disp.bits == 16 and prev_instr[2].disp.get() >= 6:
+					possible_jmp_table_adrs = prev_instr[2].disp.value
 				else: possible_jmp_table_adrs = None
 			if instr[0] == 'PUSH' and type(instr[1]) == list and 'LR' in instr[1]: possible_jmp_table_adrs = None
 			if instr[0] in ('B', 'BL') and type(instr[1]) == Register:
@@ -553,6 +554,11 @@ class Disassembly:
 					#print('='*5, hex(a), '='*5)
 					if entry[1]:
 						adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
+						# If index 0 appears to not be an address we just keep grabbing addresses until we find something valid
+						# as CCU8 tends to subtract constant index offsets from the pointer address directly
+						while adr_s > adr or adr > adr_l:
+							i += 4
+							adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
 						while adr_s <= adr <= adr_l:
 							#print(hex(adr))
 							if adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
