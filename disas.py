@@ -132,6 +132,8 @@ def RegHandler(self, flags, value): return Register(flags & 0xf, value)
 
 def NumHandler(self, flags, value): return Num(flags, value)
 
+def SegHandler(self, flags, value): return Num(flags, value, False)
+
 def ShiftNumHandler(self, flags, value):
 	n = Num(flags, value, sign = False)
 	n.disp = numdisp.DEC
@@ -211,7 +213,7 @@ def PopHandler(self, flags, value):
 class Disassembly:
 	__instrs_dsr = [
 		# DSR Prefix Instructions
-		[None, 0xe300, [0x00ff, 0,  0x0008, NumHandler]],
+		[None, 0xe300, [0x00ff, 0,  0x0008, SegHandler]],
 		[None, 0x900f, [0x00f0, 4,  0x0001, RegHandler]],
 		[None, 0xfe9f, [0x0000, 0,  0x0006, RegCtrlHandler]],
 	]
@@ -453,6 +455,7 @@ class Disassembly:
 					if _instr[2][3] == RegCtrlHandler: instr = ['EDSR']
 					else: instr = ['DW', Num(16, instr_bytes, False)]
 					dsr_src = _instr[2][3](self, _instr[2][2], (instr_bytes & _instr[2][0]) >> _instr[2][1])
+					if type(dsr_src) == Num: dsr_src.imm = False
 					self.queue_add(self.pc)
 					continue
 				else:
