@@ -519,12 +519,12 @@ class Disassembly:
 					if ptr_adr >= 6:
 						self.__jump_tables.append([ptr_adr, False, (self.pc-ins_len) >> 16, self.pc-ins_len])
 						self.__jump_tablesregs.append(self.r.copy())
-			if (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
+			elif (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
 				radr = instr[-1].get_combined()
 				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'_$j_{radr:05x}']
 				self.queue_add(radr)
 				if instr[0] == 'BC' and instr[1] != 'AL': self.queue_add(self.pc)
-			if instr[0] == 'BL' and type(instr[1]) == Address:
+			elif instr[0] == 'BL' and type(instr[1]) == Address:
 				cadr = instr[-1].get_combined() & 0xffffe
 				if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][0] == labeltype.LAB): self.labels[cadr] = [labeltype.FUN, f'_f_{cadr:05X}']
 				self.queue_add(cadr)
