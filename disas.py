@@ -522,6 +522,7 @@ class Disassembly:
 					if ptr_adr >= 6:
 						self.__jump_tables.append([ptr_adr, False, (self.pc-ins_len) >> 16, self.pc-ins_len])
 						self.__jump_tablesregs.append(self.r.copy())
+				if instr[0] != 'B': self.queue_add(self.pc)
 			elif (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
 				radr = instr[-1].get_combined()
 				if radr not in self.labels: self.labels[radr] = [labeltype.LAB, f'_$j_{radr:05x}']
