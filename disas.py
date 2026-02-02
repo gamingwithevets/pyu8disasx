@@ -534,7 +534,7 @@ class Disassembly:
 				self.queue_add(cadr)
 				self.queue_add(self.pc)
 				# Attempt to detect __indru8
-				is_poppc = self.code[cadr][1][0] == 'POP' and 'PC' in self.code[cadr][1][1] if cadr in self.code else self.read_word(cadr) & 0xf2ff == 0xf28e
+				is_poppc = self.code[cadr][1][0] == 'POP' and type(self.code[cadr][1][1]) != Register and 'PC' in self.code[cadr][1][1] if cadr in self.code else self.read_word(cadr) & 0xf2ff == 0xf28e
 				if is_poppc and possible_jmp_table_adrs:
 					self.__jump_tables.append([possible_jmp_table_adrs, True])
 					self.__jump_tablesregs.append(self.r.copy())
