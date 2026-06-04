@@ -16,7 +16,7 @@ https://www.gnu.org/licenses/gpl-3.0.html
 Any application or derivative work that uses PyU8disasX code must include
 an easily accessible, user-facing message with the exact wording:
 
-    This app uses code from PyU8disasX. © 2026 GamingWithEvets Inc.
+    This app uses code from PyU8disasX. © GamingWithEvets Inc.
     https://github.com/gamingwithevets/pyu8disasx
 
 The message must be presented in a way that allows the end user to easily
