@@ -1,118 +1,24 @@
-# Coming soon!
-**PyU8disasX** is an upcoming nX-U8/100 / nX-U16/100 disassembler, and will be an upgraded rewritten version of [PyU8disas](https://github.com/gamingwithevets/pyu8disas).
+**PyU8disasX** is an nX-U8/100 / nX-U16/100 disassembler, and is an upgraded rewritten version of [PyU8disas](https://github.com/gamingwithevets/pyu8disas).
 
-# Usage
-## GUI interface
-As of now, the GUI interface is in a test state, meaning you will need a ROM to test. The result will be a generic disassembly listing. The speed of the viewer will depend on your computer's speed as well as the size of the disassembly.
+Currently, the project is in an experimental state, so it isn't exactly usable yet.
 
-## Module (`disas.py`)
-In its current state, the module is still very experimental and unfinished. The documentation below does not include everything at the moment.
+## Usage
+### GUI interface
+As of now, the GUI interface is in a test state, meaning you will need a ROM to test.
+The result will be a generic disassembly listing.
+The speed of the viewer will depend on your computer's speed as well as the size of the disassembly.
 
-### Getting started
-First, you will need to place the repostory directory in the same one as your Python script, then add this to your script:
-```python
-from pyu8disasx import disas
-```
-Now you can start using the module.
+### Module (`disas.py`)
+In its current state, the module is still very experimental and unfinished.
+There was some documentation here, but it has been removed due to being deemed unnecessary.
 
-### Available types
-```python
-class disas.numdisp
-```
-+ An enum class with 4 possible values:
-	- 0: `disas.numdisp.HEX`
-	- 1: `disas.numdisp.DEC`
-	- 2: `disas.numdisp.OCT`
-	- 3: `disas.numdisp.BIN`
+## License
+PyU8disasX is licensed under the [GNU General Public License Version 3](LICENSE).
+Additional conditions under Section 7 are present and are as follows:
+- **Attribution** (7b): Use of this code, including derivatives, must display a visible notice:
+    > This app uses code from PyU8disasX. © GamingWithEvets Inc.  
+    > https://github.com/gamingwithevets/pyu8disasx
+- **Name Restriction** (7c): The name "**PyU8disasX**" may not be used for derivative works.  
+  Derivatives must adopt a distinct identity unrelated to "**PyU8disasX**".
 
-```python
-class disas.Register
-```
-+ Represents one of the 16 byte-sized general registers (R0 - R15) of the U8/U16 core. Can also represent one of the 8 combined word-sized general registers (ER0 - ER14), one of the 4 combined double word-sized general registers (XR0 - XR12), or one of the 2 combined quad word-sized general registers (QR0 or QR8). Attributes: `size` and `n`.
-
-```python
-class disas.ObjectBit
-```
-+ Represents a bit offset in one of the 16 byte-sized general registers. Attributes: `obj` and `bit`.
-
-```python
-class disas.Num
-```
-+ Represents a signed or unsigned number of any bit length with a customizable string output. Attributes: `bits`, `value`, `disp`, `sign`.
-
-### `Register` objects
-A `Register` object represents a U8/U16 general register of byte size, word size, double word size or quad word size.
-
-```python
-class disas.Register(size, n)
-```
-+ All arguments are required.
-
-+ `size` must be one of 1 (Rn), 2 (ERn), 4 (XRn), and 8 (QRn).
-
-+ `n` must be an integer in `range(0, 16, size)`.
-
-Instance attributes (read-only):
-```python
-Register.size
-```
-+ One of 1, 2, 4, 8.
-```python
-Register.n
-```
-+ In `range(0, 16, size)`.
-
-### Register bit objects
-A `ObjectBit` object represents a bit offset of an object.
-
-```python
-class disas.ObjectBit(obj, bit)
-```
-+ All arguments are required.
-
-+ `obj` can be any type.
-
-+ `bit` must be an integer between 0 and 7.
-
-Instance attributes (read-only):
-```python
-ObjectBit.obj
-```
-+ The base object of the bit offset.
-```python
-ObjectBit.bit
-```
-+ In `range(8)`.
-
-### Number objects
-A `Num` object represents a signed or unsigned number of any bit length, with a customizable string output.
-
-```python
-class disas.Num(bits, value)
-```
-+ All arguments are required.
-
-+ `bits` must be an integer higher than 0.
-
-+ `value` must be an integer. It will be ANDed with 255.
-
-Instance attributes:
-```python
-Num.bits
-```
-+ Can be any integer larger than 0.
-
-```python
-Num.value
-```
-+ Between 0 and the `bits`-bit integer limit.
-
-```python
-Num.disp
-```
-+ A `disas.numdisp` enum controlling the base of the string output. By default it is `disas.numdisp.HEX`.
-
-```python
-Num.sign
-```
-+ A boolean for controlling if the string output should be signed (`True`) or unsigned (`False`). By default it is `True`.
+See the [LICENSE](LICENSE) file for the full GPL-v3 terms and the [NOTICE](NOTICE) file for full conditions of GPL-v3 Section 7.

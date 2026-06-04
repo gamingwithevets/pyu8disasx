@@ -24,10 +24,10 @@ import json
 import math
 import disas
 import urllib.request
+import importlib
 import threading
 import webbrowser
 import configparser
-import pkg_resources
 
 pg_name = 'PyU8disasX'  # program name here
 
@@ -416,7 +416,7 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		file_menu.add_separator()
 		file_menu.add_command(label = 'Import...', accelerator = 'Ctrl+I', command = self.load_file)
 		export_menu = tk.Menu(file_menu)
-		export_menu.add_command(label = 'As OMFU8 assembly...', command = self.export_omf)
+		export_menu.add_command(label = 'As RASU8 assembly...', command = self.export_omf)
 		export_menu.add_command(label = 'As ELF assembly...', state = 'disabled')
 		file_menu.add_cascade(label='Export', menu=export_menu, state = 'normal' if len(self.dis.filename) > 0 else 'disabled')
 		file_menu.add_separator()
@@ -446,7 +446,7 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 			experimental_menu.add_command(label = 'These settings may or may not work properly.', state = 'disabled')
 			experimental_menu.add_command(label = 'Use these settings with caution.', state = 'disabled')
 			experimental_menu.add_separator()
-			experimental_menu.add_checkbutton(label = 'Auto update Bcond <-> BC cond', variable = self.bc_cond_debug, command = self.notify_restart)
+			experimental_menu.add_checkbutton(label = 'Auto update Bcond ↔ BC cond', variable = self.bc_cond_debug, command = self.notify_restart)
 			debug_menu.add_cascade(label = 'Debug/Experimental settings', menu = experimental_menu)
 
 			debug_menu.add_separator()
@@ -461,7 +461,7 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		help_menu = tk.Menu(menubar)
 		help_menu.add_command(label='Check for updates', command=self.UpdaterGUI.init_window)
 		help_menu.add_command(label=f'About {pg_name}', command=self.about_menu)
-		help_menu.add_command(label = 'Join Casio Calculator Hacking', command = lambda: webbrowser.open_new_tab('http://discord.gg/QjGpH6rSQQ'))
+		help_menu.add_command(label = 'Join Casio Calculator Reverse Engineering', command = lambda: webbrowser.open_new_tab('https://discord.gg/bG9BCJ5MW3'))
 		menubar.add_cascade(label='Help', menu=help_menu)
 
 		self.window.config(menu=menubar)
@@ -594,7 +594,7 @@ To start, load a binary file with File > Import... (Ctrl+I).''', justify = 'cent
 			self.canvas.yview_moveto((bbox[1] - (40 if has_label else 20)) / scroll_hi)
 
 	def export_omf(self):
-		f = tk.filedialog.asksaveasfile(title = 'Export as OMFU8', initialdir = os.getcwd(), initialfile = f'{os.path.splitext(self.dis.filename)[0]}.asm', filetypes = (('Assembly Files', '*.asm'), ('All Files', '*.*')), defaultextension = '.asm')
+		f = tk.filedialog.asksaveasfile(title = 'Export as RASU8 assembly', initialdir = os.getcwd(), initialfile = f'{os.path.splitext(self.dis.filename)[0]}.asm', filetypes = (('Assembly Files', '*.asm'), ('All Files', '*.*')), defaultextension = '.asm')
 		if f is None: return
 		f.write('TYPE(foo)  ; Replace with DCL name (see Section 5.1.1 of MACU8 User\'s Manual)\nMODEL LARGE\n\n')
 		l = math.ceil(max(len(v) for v in self.dis.data_labels.values()) / 4) * 4
@@ -628,7 +628,7 @@ To start, load a binary file with File > Import... (Ctrl+I).''', justify = 'cent
 		f.write('\nEND\n')
 
 		f.close()
-		tk.messagebox.showinfo('Export as OMFU8', 'The export was successful.')
+		tk.messagebox.showinfo('Export as RASU8 assembly', 'The export was successful.')
 
 	def do_context_menu(self, event):
 		tag = self._canvas_get_tag()
@@ -818,12 +818,7 @@ Also, you should check out the [Steveyboi/GWE Discord server](https://gamingwith
 
 	@staticmethod
 	def package_installed(package):
-		try:
-			pkg_resources.get_distribution(package)
-		except pkg_resources.DistributionNotFound:
-			return False
-
-		return True
+		return importlib.util.find_spec(package) is not None
 
 	def draw_download_msg(self, title, tag, prever, body):
 		if self.auto:
@@ -843,7 +838,7 @@ New version: {title}{" (pre-release)" if prever else ""}\
 		ttk.Label(self.win).pack()
 
 		packages_missing = []
-		for package in ('markdown', 'mdformat-gfm', 'tkinterweb'):
+		for package in ('markdown', 'mdformat', 'tkinterweb'):
 			if not self.package_installed(package):
 				packages_missing.append(package)
 
