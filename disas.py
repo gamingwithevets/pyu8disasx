@@ -16,6 +16,7 @@ if has_colorama: init(autoreset = True)
 GREEN = Fore.GREEN if has_colorama else ''
 RED = Fore.RED if has_colorama else ''
 YELLOW = Fore.YELLOW if has_colorama else ''
+MAGENTA = Fore.MAGENTA if has_colorama else ''
 END = Fore.RESET if has_colorama else ''
 
 def conv_sign(value, bits): return value - (value >> (bits - 1)) * (2**bits)
