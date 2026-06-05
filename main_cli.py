@@ -24,7 +24,8 @@ logging.addLevelName(logging.WARNING, f'{YELLOW}WARNING')
 logging.addLevelName(logging.ERROR, f'{RED}ERROR')
 logging.addLevelName(logging.DEBUG, f'{CYAN}DEBUG')
 
-def process_ins_param(dis, param, is_lea, data_bit_labels):
+def process_ins_param(dis, param, is_lea = False, data_bit_labels = None):
+	if data_bit_labels is None: data_bit_labels = {}
 	if type(param) == list: return ', '.join(param)
 	elif type(param) == disas.Address:
 		if param.seg is None:
@@ -60,32 +61,25 @@ def log_exc(func, exc):
 		func(f'[{type(exc).__name__}] {exc.filename}{", "+exc.filename2 if exc.filename2 else ""}: {exc.strerror} ({errno})')
 	else: func(f'[{type(exc).__name__}] {exc}')
 
-def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = False):
+def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = False, disas_all = False):
 	logging.info('Loading binary')
 	size = 0
+	rom = b''
 	try:
 		with open(filename, 'rb') as f:
-			b = f.read()
-			size = len(b)
-			dis = disas.Disassembly(b)
+			rom = f.read()
+			size = len(rom)
+			dis = disas.Disassembly(rom)
 	except Exception as e:
 		log_exc(logging.error, e)
 		return
+	num_segs = math.ceil(size / 0x10000)
 
 	sfr_labels = {}
 	dcl_name = 'foo'
 	data_bit_labels = {}
-	if labelfile:
-		logging.info('Loading label files')
-		for file in labelfile:
-			try:
-				with open(file) as f: labels, data_labels, _data_bit_labels = labeltool.load_labels(f, 0)
-				for k, v in labels.items():
-					if v[1]: dis.labels[k] = [disas.labeltype.FUN, ('' if v[0].endswith('u8') or (v[0].endswith('_n') and not v[0].endswith('base_n')) or v[0].endswith('_nn') else '_')+v[0].replace('.', '_')]
-					else: dis.labels[k] = [disas.labeltype.LAB, f'_${labels[v[2]][0]}_{v[0][1:]}']
-				for k, v in data_labels.items(): dis.data_labels[k] = '_' + v.replace('.', '_')
-				for k, v in _data_bit_labels.items(): data_bit_labels[k] = '_' + v
-			except Exception as e: log_exc(logging.warning, e)
+
+	interrupts = {}
 	if dclfile:
 		logging.info('Loading DCL file')
 		try:
@@ -97,58 +91,149 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 			for k, v in reader.data_bit_labels.items(): data_bit_labels[k] = v
 			dcl_name = os.path.splitext(os.path.basename(dclfile))[0]
 			if romwin is None: romwin = reader.romwin
+			interrupts = dict(sorted(reader.interrupts.items()))
 		except Exception as e: log_exc(logging.warning, e)
-	elif romwin is None: romwin = 0
+	else:
+		if romwin is None: romwin = 0
+
+	if labelfile:
+		logging.info('Loading label files')
+		for file in labelfile:
+			try:
+				with open(file) as f: labels, data_labels, _data_bit_labels = labeltool.load_labels(f, 0)
+				for k, v in labels.items():
+					if v[1]: dis.labels[k] = [disas.labeltype.FUN, ('' if v[0].endswith('u8') or (v[0].endswith('_n') and not v[0].endswith('base_n')) or v[0].endswith('_nn') else '_')+v[0].replace('.', '_')]
+					else: dis.labels[k] = [disas.labeltype.LAB, f'_${labels[v[2]][0]}_{v[0][1:]}']
+				for k, v in data_labels.items():
+					name = '_' + v.replace('.', '_')
+					if v == f'd_{k:05X}':
+						if k >= romwin: dis.data_labels[k] = name
+						else: dis.data_labels[k] = f'_unk_{k:05x}'
+				for k, v in _data_bit_labels.items(): data_bit_labels[k] = '_' + v
+			except Exception as e: log_exc(logging.warning, e)
 	logging.info('Disassembling...')
 	dis.disassemble()
-	#dis.jmptable_add(0x19a8, 27, jmpseg = 1, bl = True)
-	#dis.jmptable_add(0x1ae6, 101, jmpseg = 1, bl = True)
-	#dis.jmptable_add(0x1df4, 12, True)
-	#dis.jmptable_add(0x1e8a, 11, True)
-	'''i = 2
-	while not dis.is_queue_empty():
-		print(f'Disassemble stage {i}...')
+	if disas_all:
+		logging.info('Adding undetected functions to queue')
+		for addr in dis.labels:
+			if addr not in dis.code: dis.queue_add(addr)
+		logging.info('Disassembling undetected functions')
 		dis.disassemble()
-		i += 2'''
 
 	with open(out, 'w') as f:
 		logging.info('Writing to file...')
 		f.write(f'TYPE({dcl_name})\nMODEL {"SMALL" if size <= 0x10000 else "LARGE"}\n\n')
 
+		logging.info('Writing address constants')
 		l = math.ceil(max(len(v) for v in dis.data_labels.values()) / 4) * 4
 		equs = ''
-		extrns = ''
+		table_dt = {}
 		dis.data_labels = dict(sorted(dis.data_labels.items()))
 		for k, v in dis.data_labels.items():
 			if k in sfr_labels: continue
 			tabs = '\t'*math.ceil((l - len(v)) / 4)
 			if not tabs: tabs = '\t'
 			if k >= romwin: equs += f'{v}{tabs}EQU {"" if hex(k)[2].isnumeric() else "0"}{k:04X}H\n'
-			else: extrns += f'EXTRN TABLE\t: {v}\n'
+			else: table_dt[k] = v
 
 		f.write(equs)
 
-		for addr, ins in dis.code.items():
-			if addr in dis.labels:
-				if dis.labels[addr][0] == disas.labeltype.FUN: f.write(f'\n; {addr:05X}\n')
-				f.write(f'{dis.labels[addr][1]}:\n')
-			instrl = ins[0]
-			instr = ins[1]
-			tab = '\t'
-			#string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
-			if addresses:
-				string = f'/*\t{addr:05X}\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))} */ {instr[0]}'
-			else: string = f'\t{instr[0]}'
-			is_lea = instr[0] == 'LEA'
-			if len(instr) >= 2: string += ' ' + process_ins_param(dis, instr[1], is_lea, data_bit_labels)
-			if len(instr) == 3: string += ', ' + process_ins_param(dis, instr[2], is_lea, data_bit_labels)
-			f.write(string + '\n')
+		logging.info('Writing disassembly... This may take a while')
+		tab = '\t'
+		intr_adrs = list(interrupts.keys())
+		code_adrs = list(dis.code.keys())
+		table_dt_keys = list(table_dt.keys())
+		for seg in range(num_segs):
+			table_mode = seg == 0
+			tbytes_line = 0
+			tbytes_mode = False
+			skip_byte = 0
+			f.write(f'\n{"T" if table_mode else "C"}SEG #{seg} AT 0\n\n')
+			for addr16 in range(0x10000):
+				if not (seg == 0 and addr16 == 0) and addr16 % 0x2000 == 0: logging.info(f'Writing disassembly... {seg}:{addr16:05X}H')
+				if not table_mode and addr16 % 2 != 0: continue
+				if skip_byte:
+					skip_byte -= 1
+					continue
+				addr = (seg << 16) + addr16
+				if addr == 0:
+					if tbytes_mode:
+						tbytes_mode = False
+						tbytes_line = 0
+						f.write('\n\n')
+					f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/" if addresses else tab}DW {disas.Address(dis.read_word(0))}\n')
+					skip_byte = 1
+				elif addr == 2:
+					if tbytes_mode:
+						tbytes_mode = False
+						tbytes_line = 0
+						f.write('\n\n')
+					f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(2), 0))}\n')
+					skip_byte = 1
+				elif addr == 4:
+					if tbytes_mode:
+						tbytes_mode = False
+						tbytes_line = 0
+						f.write('\n\n')
+					f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(4), 0))}\n')
+					skip_byte = 1
+				elif addr in intr_adrs:
+					if tbytes_mode:
+						tbytes_mode = False
+						tbytes_line = 0
+						f.write('\n\n')
+					f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(addr), 0))}\n')
+					skip_byte = 1
+				elif addr in code_adrs:
+					if table_mode:
+						if tbytes_mode:
+							tbytes_mode = False
+							tbytes_line = 0
+							f.write('\n')
+						f.write(f'\nCSEG\n\n')
+						table_mode = False
+					if addr in dis.labels:
+						if dis.labels[addr][0] == disas.labeltype.FUN: f.write(f'\n; {addr:05X}\n')
+						f.write(f'{dis.labels[addr][1]}:\n')
+					ins = dis.code[addr]
+					instrl = ins[0]
+					instr = ins[1]
+					#string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
+					if addresses:
+						string = f'/*\t{addr:05X}\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))} */ {instr[0]}'
+					else: string = f'\t{instr[0]}'
+					is_lea = instr[0] == 'LEA'
+					if len(instr) >= 2: string += ' ' + process_ins_param(dis, instr[1], is_lea, data_bit_labels)
+					if len(instr) == 3: string += ', ' + process_ins_param(dis, instr[2], is_lea, data_bit_labels)
+					f.write(string + '\n')
+					skip_byte = len(instrl) - 1
+				else:
+					if not table_mode:
+						f.write(f'\nTSEG\n')
+						table_mode = True
+						tbytes_line = 0
+					if not tbytes_mode:
+						f.write('\n')
+						tbytes_mode = True
+					
+					if addr in table_dt_keys:
+						tbytes_line = 0
+						f.write(f'\n\n; {addr:05X}\n{table_dt[addr]}:\n')
+					
+					f.write(f'{"/*"+tab+format(addr, "05X")+tab+"*/" if addresses else tab}DB ' if tbytes_line == 0 else ', ')
+					b = rom[addr]
+					fmt = f'{b:3X}H'
+					if b >= 0xa and b <= 0xf: fmt = ' 0' + fmt[2:]
+					elif b >= 0xa0: fmt = '0' + fmt[1:]
+					f.write(fmt)
+					tbytes_line += 1
+					if tbytes_line == 16:
+						f.write('\n')
+						tbytes_line = 0
 
-		f.write('\n')
-		for k, v in dict(sorted(dis.labels.items())).items():
-			if v[0] == disas.labeltype.FUN: f.write(f'PUBLIC {v[1]}\n')
+			if tbytes_mode: f.write('\n')
 
-		f.write(f'\n{extrns}\nEND\n')
+		f.write(f'\nEND\n')
 		f.close()
 	logging.info('Done.')
 
@@ -159,8 +244,9 @@ if __name__ == '__main__':
 
 	gr_disas = parser.add_argument_group('disassembler and labels')
 	gr_disas.add_argument('-r', '--romwin', type = lambda x: int(x, 0), help = 'ROM window size. if unspecified and no DCL file is loaded, or ROM window is 0, no ROM window will be present. if specified, overrides DCL specification')
-	gr_disas.add_argument('-l', '--label', action = 'append', help = 'add a label file')
+	gr_disas.add_argument('-l', '--label', action = 'append', help = 'add a label file. data labels override DCL specification and are added to the address constants list')
 	gr_disas.add_argument('-d', '--dcl', help = 'load a DCL file. if unspecified, default DCL name will be "foo"')
+	gr_disas.add_argument('--all', action = 'store_true', help = 'disassemble all functions listed in all provided label files')
 
 	gr_output = parser.add_argument_group('output options')
 	gr_output.add_argument('-o', '--output', help = 'filename of output assembly file (default: ROM filename with ASM extension)')
@@ -177,4 +263,4 @@ if __name__ == '__main__':
 	else: output = args.output
 
 	os.chdir(os.path.dirname(os.path.abspath(__file__)))
-	disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses)
+	disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses, args.all)
