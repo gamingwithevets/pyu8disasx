@@ -98,6 +98,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 			dcl_name = os.path.splitext(os.path.basename(dclfile))[0]
 			if romwin is None: romwin = reader.romwin
 		except Exception as e: log_exc(logging.warning, e)
+	elif romwin is None: romwin = 0
 	logging.info('Disassembling...')
 	dis.disassemble()
 	#dis.jmptable_add(0x19a8, 27, jmpseg = 1, bl = True)
@@ -173,6 +174,7 @@ if __name__ == '__main__':
 	if args.debug: logging.basicConfig(format = f'{DARK_GRAY}[%(asctime)s] [%(filename)s:%(funcName)s:%(lineno)d] %(levelname)s: {END}%(message)s', datefmt = '%d/%m/%Y %H:%M:%S', level = logging.DEBUG, force = True)
 
 	if args.output is None: output = os.path.splitext(args.file)[0] + '.asm'
+	else: output = args.output
 
 	os.chdir(os.path.dirname(os.path.abspath(__file__)))
-	disassemble(args.file, args.output, args.label, args.dcl, args.romwin, args.addresses)
+	disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses)
