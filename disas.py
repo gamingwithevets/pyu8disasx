@@ -677,7 +677,7 @@ class Disassembly:
 	def read_word(self, addr):
 		if not len(self.__regions): raise ValueError('no code regions loaded')
 		if addr < 0: raise ValueError('address must not be negative')
-		if self.max() < addr:
+		if self.max() <= addr:
 			for start, code_bytes in self.__regions:
 				if addr >= start and addr < start + len(code_bytes): return (code_bytes[addr-start+1] << 8) | code_bytes[addr-start]
 		return self.__pad_word

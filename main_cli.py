@@ -1,9 +1,15 @@
 import sys, os
+
+if sys.version_info < (3, 8, 0):
+	print('This program requires at least Python 3.8.0. (You are running Python ' + platform.python_version() + ')')
+	sys.exit()
+
 import math
 import disas
 import labeltool.labeltool as labeltool
 import dcl
 import logging
+import functools
 try:
 	from colorama import init, Fore, Style
 	has_colorama = True
@@ -51,6 +57,13 @@ def process_ins_param(dis, param, is_lea = False, data_bit_labels = None):
 			return str(param) + '  ;  Disp16 used instead of Disp6'
 
 	return str(param)
+
+@functools.lru_cache
+def get_byte(b):
+	fmt = f'{b:3X}H'
+	if b >= 0xa and b <= 0xf: fmt = ' 0' + fmt[2:]
+	elif b >= 0xa0: fmt = '0' + fmt[1:]
+	return fmt
 
 def log_exc(func, exc):
 	if issubclass(type(exc), OSError):
@@ -122,7 +135,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 
 	with open(out, 'w') as f:
 		logging.info('Writing to file...')
-		f.write(f'TYPE({dcl_name})\nMODEL {"SMALL" if size <= 0x10000 else "LARGE"}\n\n')
+		f.write(f'TYPE({dcl_name})\nMODEL {"SMALL" if size <= 0x10000 else "LARGE"}\nROMWINDOW 0, {romwin-1:05X}H\n\n')
 
 		logging.info('Writing address constants')
 		l = math.ceil(max(len(v) for v in dis.data_labels.values()) / 4) * 4
@@ -156,29 +169,25 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 					skip_byte -= 1
 					continue
 				addr = (seg << 16) + addr16
-				if addr == 0:
-					if tbytes_mode:
+				if addr < 6:
+					if not table_mode:
+						if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+						table_mode = True
+						tbytes_line = 0
+					elif tbytes_mode:
 						tbytes_mode = False
 						tbytes_line = 0
 						f.write('\n\n')
-					f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/" if addresses else tab}DW {disas.Address(dis.read_word(0))}\n')
-					skip_byte = 1
-				elif addr == 2:
-					if tbytes_mode:
-						tbytes_mode = False
-						tbytes_line = 0
-						f.write('\n\n')
-					f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(2), 0))}\n')
-					skip_byte = 1
-				elif addr == 4:
-					if tbytes_mode:
-						tbytes_mode = False
-						tbytes_line = 0
-						f.write('\n\n')
-					f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(4), 0))}\n')
+					if addr == 0: f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/" if addresses else tab}DW {disas.Address(dis.read_word(0))}\n')
+					elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(2), 0))}\n')
+					elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(4), 0))}\n')
 					skip_byte = 1
 				elif addr in intr_adrs:
-					if tbytes_mode:
+					if not table_mode:
+						if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+						table_mode = True
+						tbytes_line = 0
+					elif tbytes_mode:
 						tbytes_mode = False
 						tbytes_line = 0
 						f.write('\n\n')
@@ -190,7 +199,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 							tbytes_mode = False
 							tbytes_line = 0
 							f.write('\n')
-						f.write(f'\nCSEG\n\n')
+						if addr < romwin: f.write(f'\nCSEG #{seg} AT {addr:05X}H\n\n')
 						table_mode = False
 					if addr in dis.labels:
 						if dis.labels[addr][0] == disas.labeltype.FUN: f.write(f'\n; {addr:05X}\n')
@@ -209,7 +218,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 					skip_byte = len(instrl) - 1
 				else:
 					if not table_mode:
-						f.write(f'\nTSEG\n')
+						if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
 						table_mode = True
 						tbytes_line = 0
 					if not tbytes_mode:
@@ -221,11 +230,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 						f.write(f'\n\n; {addr:05X}\n{table_dt[addr]}:\n')
 					
 					f.write(f'{"/*"+tab+format(addr, "05X")+tab+"*/" if addresses else tab}DB ' if tbytes_line == 0 else ', ')
-					b = rom[addr]
-					fmt = f'{b:3X}H'
-					if b >= 0xa and b <= 0xf: fmt = ' 0' + fmt[2:]
-					elif b >= 0xa0: fmt = '0' + fmt[1:]
-					f.write(fmt)
+					f.write(get_byte(rom[addr]))
 					tbytes_line += 1
 					if tbytes_line == 16:
 						f.write('\n')
