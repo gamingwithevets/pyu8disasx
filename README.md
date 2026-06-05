@@ -8,6 +8,9 @@ As of now, the GUI interface is in a test state, meaning you will need a ROM to 
 The result will be a generic disassembly listing.
 The speed of the viewer will depend on your computer's speed as well as the size of the disassembly.
 
+### Command-line interface
+For ease of use, a command-line interface is also provided. Run `python main_cli.py -h` for command-line syntax.
+
 ### Module (`disas.py`)
 In its current state, the module is still very experimental and unfinished.
 There was some documentation here, but it has been removed due to being deemed unnecessary.

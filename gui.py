@@ -77,6 +77,11 @@ def process_ins_param(dis, param):
 	elif type(param) == disas.BitOffset and type(param.item) == disas.Address:
 		addr = param.item.addr.value
 		if addr in dis.data_labels: return f'{dis.data_labels[addr]}.{param.bit}'
+	elif type(param) == disas.Pointer and not is_lea and type(param.disp) == disas.Num and type(param.register) == disas.Register and param.register.n in (12, 14) and param.register.size == 2:
+		val = param.disp.get()
+		if param.disp.bits == 16 and ((val >= 0 and val <= 0x1f) or (val >= -0x20 and val < 0)):
+			param.register.ptr = False
+			return str(param) + '  ;  Disp16 used instead of Disp6'
 
 	return str(param)
 
@@ -500,7 +505,7 @@ To start, load a binary file with File > Import... (Ctrl+I).''', justify = 'cent
 		self.refresh()
 		self.make_canvas()
 		head = ttk.Label(text = 'Please wait', font = self.bold_font); head.pack()
-		body = ttk.Label(text = 'Disassembling... This may take a while.'); body.pack()
+		body = ttk.Label(text = 'Drawing disassembly listing... This may take a while.'); body.pack()
 		self.window.update()
 
 		y = 0
