@@ -8,6 +8,7 @@ class DCLReader:
 		self.data_labels = {}
 		self.data_bit_labels = {}
 		self.romwin = 0
+		self.interrupts = {}
 
 	def parse(self):
 		current_section = None
@@ -21,7 +22,10 @@ class DCLReader:
 				if line.startswith('#RAM'):
 					current_section = 'RAM'
 					continue
-				if line.startswith('#DEFDATA'):
+				if line.startswith('#DEFCODE'):
+					current_section = 'CODE'
+					continue
+				elif line.startswith('#DEFDATA'):
 					current_section = 'DATA'
 					continue
 				elif line.startswith('#DEFBIT'):
@@ -42,6 +46,16 @@ class DCLReader:
 								clean_addr = int(end_adr.rstrip('H'), 16)
 								self.romwin = clean_addr + 1
 							except ValueError: continue
+
+				elif current_section == 'CODE':
+					name = parts[0]
+					addr_str = parts[1]
+					if addr_str.endswith('H'):
+						try:
+							clean_addr = int(addr_str.rstrip('H'), 16)
+							self.interrupts[clean_addr] = name
+						except ValueError: continue
+
 				elif current_section == 'DATA':
 					name = parts[0]
 					addr_str = parts[1]
