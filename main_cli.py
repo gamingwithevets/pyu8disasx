@@ -7,12 +7,12 @@ import os
 import io
 import math
 import disas
-import dcl
 import logging
 import functools
 
 try:
 	import labeltool.labeltool as labeltool
+	import dcl
 	has_labeltool = True
 except ImportError: has_labeltool = False
 
