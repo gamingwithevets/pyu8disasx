@@ -252,7 +252,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description = 'PyU8disasX command line auto-disassembler.\nDisassembly is compatible with RASU8.', epilog = f'© 2024-2026 GamingWithEvets Inc. Licensed under GPL-v3', formatter_class = argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('file', help = 'filename of ROM to disassemble')
 
-	gr_disas = parser.add_argument_group('disassembler and labels')
+	gr_disas = parser.add_argument_group(f'disassembler {"and labels" if has_labeltool else "options"}')
 	gr_disas.add_argument('-r', '--romwin', type = lambda x: int(x, 0), help = f'ROM window size. if unspecified{" and no DCL file is loaded," if has_labeltool else ""} or ROM window is 0, no ROM window will be present{". if specified, overrides DCL specification" if has_labeltool else ""}')
 	if has_labeltool:
 		gr_disas.add_argument('-l', '--label', action = 'append', help = 'add a label file. data labels override DCL specification and are added to the symbol definitions')
