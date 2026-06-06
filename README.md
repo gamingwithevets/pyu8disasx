@@ -3,17 +3,18 @@
 Currently, the project is in an experimental state, so it isn't exactly usable yet.
 
 ## Usage
+### Command-line interface
+Even though the command-line interface was added later, it is the **preferred method** of using PyU8disasX. It has many options for customizing the disassembly output.
+
+Run `python main_cli.py -h` for command-line syntax and available options.
+
 ### GUI interface
-As of now, the GUI interface is in a test state, meaning you will need a ROM to test.
-The result will be a generic disassembly listing.
+As of now, the GUI interface is in an experimental state, and is **not recommended** to be used at this time.
+
+To use the GUI interface, the ROM has to be imported with File > Import... or Ctrl+I. The result will be a generic disassembly listing.
 The speed of the viewer will depend on your computer's speed as well as the size of the disassembly.
 
-### Command-line interface
-For ease of use, a command-line interface is also provided. Run `python main_cli.py -h` for command-line syntax.
-
 ### Module (`disas.py`)
-In its current state, the module is still very experimental and unfinished.
-There was some documentation here, but it has been removed due to being deemed unnecessary.
 
 ## License
 PyU8disasX is licensed under the [GNU General Public License Version 3](LICENSE).
