@@ -1,9 +1,10 @@
-import sys, os
-
+import sys
 if sys.version_info < (3, 8, 0):
 	print('This program requires at least Python 3.8.0. (You are running Python ' + platform.python_version() + ')')
 	sys.exit()
 
+import os
+import io
 import math
 import disas
 import labeltool.labeltool as labeltool
@@ -122,6 +123,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 					if v == f'd_{k:05X}':
 						if k >= romwin: dis.data_labels[k] = name
 						else: dis.data_labels[k] = f'_unk_{k:05x}'
+					else: dis.data_labels[k] = name
 				for k, v in _data_bit_labels.items(): data_bit_labels[k] = '_' + v
 			except Exception as e: log_exc(logging.warning, e)
 	logging.info('Disassembling...')
@@ -133,113 +135,115 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 		logging.info('Disassembling undetected functions')
 		dis.disassemble()
 
-	with open(out, 'w') as f:
-		logging.info('Writing to file...')
-		f.write(f'TYPE({dcl_name})\nMODEL {"SMALL" if size <= 0x10000 else "LARGE"}\nROMWINDOW 0, {romwin-1:05X}H\n\n')
+	f = io.StringIO()
+	logging.info('Writing initialization directives')
+	f.write(f'TYPE({dcl_name})\nMODEL {"SMALL" if size <= 0x10000 else "LARGE"}\nROMWINDOW 0, {romwin-1:05X}H\n\n')
 
-		logging.info('Writing address constants')
-		l = math.ceil(max(len(v) for v in dis.data_labels.values()) / 4) * 4
-		equs = ''
-		table_dt = {}
-		dis.data_labels = dict(sorted(dis.data_labels.items()))
-		for k, v in dis.data_labels.items():
-			if k in sfr_labels: continue
-			tabs = '\t'*math.ceil((l - len(v)) / 4)
-			if not tabs: tabs = '\t'
-			if k >= romwin: equs += f'{v}{tabs}EQU {"" if hex(k)[2].isnumeric() else "0"}{k:04X}H\n'
-			else: table_dt[k] = v
+	logging.info('Writing symbol definitions')
+	l = math.ceil(max(len(v) for v in dis.data_labels.values()) / 4) * 4
+	equs = ''
+	table_dt = {}
+	dis.data_labels = dict(sorted(dis.data_labels.items()))
+	for k, v in dis.data_labels.items():
+		if k in sfr_labels: continue
+		tabs = '\t'*math.ceil((l - len(v)) / 4)
+		if not tabs: tabs = '\t'
+		if k >= romwin: equs += f'{v}{tabs}EQU {"" if hex(k)[2].isnumeric() else "0"}{k:04X}H\n'
+		else: table_dt[k] = v
 
-		f.write(equs)
+	f.write(equs)
 
-		logging.info('Writing disassembly... This may take a while')
-		tab = '\t'
-		intr_adrs = list(interrupts.keys())
-		code_adrs = list(dis.code.keys())
-		table_dt_keys = list(table_dt.keys())
-		for seg in range(num_segs):
-			table_mode = seg == 0
-			tbytes_line = 0
-			tbytes_mode = False
-			skip_byte = 0
-			f.write(f'\n{"T" if table_mode else "C"}SEG #{seg} AT 0\n\n')
-			for addr16 in range(0x10000):
-				if not (seg == 0 and addr16 == 0) and addr16 % 0x2000 == 0: logging.info(f'Writing disassembly... {seg}:{addr16:05X}H')
-				if not table_mode and addr16 % 2 != 0: continue
-				if skip_byte:
-					skip_byte -= 1
-					continue
-				addr = (seg << 16) + addr16
-				if addr < 6:
-					if not table_mode:
-						if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
-						table_mode = True
-						tbytes_line = 0
-					elif tbytes_mode:
+	logging.info('Writing disassembly')
+	tab = '\t'
+	intr_adrs = set(interrupts.keys())
+	code_adrs = set(dis.code.keys())
+	table_dt_keys = set(table_dt.keys())
+	label_keys = set(dis.labels.keys())
+	for seg in range(num_segs):
+		table_mode = seg == 0
+		tbytes_line = 0
+		tbytes_mode = False
+		skip_byte = 0
+		f.write(f'\n{"T" if table_mode else "C"}SEG #{seg} AT 0\n\n')
+		for addr16 in range(0x10000):
+			if not table_mode and addr16 % 2 != 0: continue
+			if skip_byte:
+				skip_byte -= 1
+				continue
+			addr = (seg << 16) + addr16
+			if addr < 6:
+				if not table_mode:
+					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+					table_mode = True
+					tbytes_line = 0
+				elif tbytes_mode:
+					if tbytes_line > 0: f.write('\n\n')
+					tbytes_mode = False
+					tbytes_line = 0
+				if addr == 0: f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/ " if addresses else tab}DW {disas.Address(dis.read_word(0))}\n')
+				elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(2), 0))}\n')
+				elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(4), 0))}\n')
+				skip_byte = 1
+			elif addr in intr_adrs:
+				if not table_mode:
+					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+					table_mode = True
+					tbytes_line = 0
+				elif tbytes_mode:
+					if tbytes_line > 0: f.write('\n\n')
+					tbytes_mode = False
+					tbytes_line = 0
+				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(addr), 0))}\n')
+				skip_byte = 1
+			elif addr in code_adrs:
+				if table_mode:
+					if tbytes_mode:
+						if tbytes_line > 0: f.write('\n')
 						tbytes_mode = False
 						tbytes_line = 0
-						f.write('\n\n')
-					if addr == 0: f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/" if addresses else tab}DW {disas.Address(dis.read_word(0))}\n')
-					elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(2), 0))}\n')
-					elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(4), 0))}\n')
-					skip_byte = 1
-				elif addr in intr_adrs:
-					if not table_mode:
-						if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
-						table_mode = True
-						tbytes_line = 0
-					elif tbytes_mode:
-						tbytes_mode = False
-						tbytes_line = 0
-						f.write('\n\n')
-					f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+"*/" if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(addr), 0))}\n')
-					skip_byte = 1
-				elif addr in code_adrs:
-					if table_mode:
-						if tbytes_mode:
-							tbytes_mode = False
-							tbytes_line = 0
-							f.write('\n')
-						if addr < romwin: f.write(f'\nCSEG #{seg} AT {addr:05X}H\n\n')
-						table_mode = False
-					if addr in dis.labels:
-						if dis.labels[addr][0] == disas.labeltype.FUN: f.write(f'\n; {addr:05X}\n')
-						f.write(f'{dis.labels[addr][1]}:\n')
-					ins = dis.code[addr]
-					instrl = ins[0]
-					instr = ins[1]
-					#string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
-					if addresses:
-						string = f'/*\t{addr:05X}\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))} */ {instr[0]}'
-					else: string = f'\t{instr[0]}'
-					is_lea = instr[0] == 'LEA'
-					if len(instr) >= 2: string += ' ' + process_ins_param(dis, instr[1], is_lea, data_bit_labels)
-					if len(instr) == 3: string += ', ' + process_ins_param(dis, instr[2], is_lea, data_bit_labels)
-					f.write(string + '\n')
-					skip_byte = len(instrl) - 1
-				else:
-					if not table_mode:
-						if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
-						table_mode = True
-						tbytes_line = 0
-					if not tbytes_mode:
-						f.write('\n')
-						tbytes_mode = True
-					
-					if addr in table_dt_keys:
-						tbytes_line = 0
-						f.write(f'\n\n; {addr:05X}\n{table_dt[addr]}:\n')
-					
-					f.write(f'{"/*"+tab+format(addr, "05X")+tab+"*/" if addresses else tab}DB ' if tbytes_line == 0 else ', ')
-					f.write(get_byte(rom[addr]))
-					tbytes_line += 1
-					if tbytes_line == 16:
-						f.write('\n')
-						tbytes_line = 0
+					if addr < romwin: f.write(f'\nCSEG #{seg} AT {addr:05X}H\n')
+					table_mode = False
+				if addr in dis.labels:
+					if dis.labels[addr][0] == disas.labeltype.FUN: f.write(f'\n; {addr:05X}\n')
+					f.write(f'{dis.labels[addr][1]}:\n')
+				ins = dis.code[addr]
+				instrl = ins[0]
+				instr = ins[1]
+				#string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
+				if addresses:
+					string = f'/*\t{addr:05X}\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))} */ {instr[0]}'
+				else: string = f'\t{instr[0]}'
+				is_lea = instr[0] == 'LEA'
+				if len(instr) >= 2: string += ' ' + process_ins_param(dis, instr[1], is_lea, data_bit_labels)
+				if len(instr) == 3: string += ', ' + process_ins_param(dis, instr[2], is_lea, data_bit_labels)
+				f.write(string + '\n')
+				skip_byte = len(instrl) - 1
+			else:
+				if not table_mode:
+					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n\n')
+					table_mode = True
+					tbytes_line = 0
+				if not tbytes_mode: tbytes_mode = True
+				
+				if addr in table_dt_keys:
+					if tbytes_line > 0: f.write('\n\n')
+					tbytes_line = 0
+					f.write(f'; {addr:05X}\n{table_dt[addr]}:\n')
+				
+				f.write(f'{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}DB ' if tbytes_line == 0 else ', ')
+				f.write(get_byte(rom[addr]))
+				tbytes_line += 1
+				if tbytes_line == 16:
+					f.write('\n')
+					tbytes_line = 0
 
-			if tbytes_mode: f.write('\n')
+		if tbytes_mode: f.write('\n')
 
-		f.write(f'\nEND\n')
-		f.close()
+	f.write(f'\nEND\n')
+	
+	logging.info('Copying disassembly to file')
+	with open(out, 'w') as g: g.write(f.getvalue())
+
 	logging.info('Done.')
 
 if __name__ == '__main__':
@@ -249,7 +253,7 @@ if __name__ == '__main__':
 
 	gr_disas = parser.add_argument_group('disassembler and labels')
 	gr_disas.add_argument('-r', '--romwin', type = lambda x: int(x, 0), help = 'ROM window size. if unspecified and no DCL file is loaded, or ROM window is 0, no ROM window will be present. if specified, overrides DCL specification')
-	gr_disas.add_argument('-l', '--label', action = 'append', help = 'add a label file. data labels override DCL specification and are added to the address constants list')
+	gr_disas.add_argument('-l', '--label', action = 'append', help = 'add a label file. data labels override DCL specification and are added to the symbol definitions')
 	gr_disas.add_argument('-d', '--dcl', help = 'load a DCL file. if unspecified, default DCL name will be "foo"')
 	gr_disas.add_argument('--all', action = 'store_true', help = 'disassemble all functions listed in all provided label files')
 
