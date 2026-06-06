@@ -155,10 +155,6 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 
 	logging.info('Writing disassembly')
 	tab = '\t'
-	intr_adrs = set(interrupts.keys())
-	code_adrs = set(dis.code.keys())
-	table_dt_keys = set(table_dt.keys())
-	label_keys = set(dis.labels.keys())
 	for seg in range(num_segs):
 		table_mode = seg == 0
 		tbytes_line = 0
@@ -184,7 +180,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 				elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(2), 0))}\n')
 				elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(4), 0))}\n')
 				skip_byte = 1
-			elif addr in intr_adrs:
+			elif addr in interrupts:
 				if not table_mode:
 					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
 					table_mode = True
@@ -195,7 +191,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 					tbytes_line = 0
 				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(addr), 0))}\n')
 				skip_byte = 1
-			elif addr in code_adrs:
+			elif addr in dis.code:
 				if table_mode:
 					if tbytes_mode:
 						if tbytes_line > 0: f.write('\n')
@@ -225,7 +221,7 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 					tbytes_line = 0
 				if not tbytes_mode: tbytes_mode = True
 				
-				if addr in table_dt_keys:
+				if addr in table_dt:
 					if tbytes_line > 0: f.write('\n\n')
 					tbytes_line = 0
 					f.write(f'; {addr:05X}\n{table_dt[addr]}:\n')
