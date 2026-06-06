@@ -516,7 +516,12 @@ class Disassembly:
 			else:
 				self.code[self.pc-ins_len] = [[self.__instrl[0]], prev_instr]
 				self.code[self.pc-ins_len+2] = [self.__instrl[1:], instr]
-				dsr_src = None
+
+			mid_addr = self.pc-ins_len + (2 if dsr_src is None else 4)
+			if ins_len == (4 if dsr_src is None else 6) and mid_addr in self.code:
+				logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Removed address {YELLOW}{mid_addr:05X} from disassembly and labels{END}')
+				del self.code[mid_addr]
+				if mid_addr in self.labels: del self.labels[mid_addr]
 
 			self.__instrl = []
 			
@@ -596,15 +601,19 @@ class Disassembly:
 						size = 0
 						while adr_s <= adr <= adr_l:
 							#print(hex(adr))
+							if not self.queue_add(adr, r):
+								if adr in self.labels: del self.labels[adr]
+								break
 							if adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
-							self.__queue.append(adr)
-							self.__queueregs.append(r)
 							i += 4
 							size += 1
 							adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
 
-						logging.debug(f'{GREEN}Jump table processing: {END}Far jump table @ {YELLOW}{addr:05X}{END}, size {YELLOW}{size}{END}')
-						self.jump_tables[addr] = [size, True]
+						if size > 0:
+							logging.debug(f'{GREEN}Jump table processing: {END}Far jump table @ {YELLOW}{addr:05X}{END}, size {YELLOW}{size}{END}')
+							self.jump_tables[addr] = [size, True]
+							if addr not in self.data_labels or (addr in self.data_labels and self.data_labels[addr].startswith('_unk_')): self.data_labels[addr] = f'_jmp_{addr:05x}'
+						else: logging.debug(f'{GREEN}Jump table processing: {END}Far jump table @ {YELLOW}{addr:05X}{END} not a jump table')
 					else:
 						seg = entry[2]
 						adr = (seg << 16) | self.read_word(a+i)
@@ -612,15 +621,20 @@ class Disassembly:
 						j = 0
 						while adr_s <= adr <= adr_l and adr & 0xffff > 0 and adr % 2 == 0:
 							#print(hex(adr))
+							if not self.queue_add(adr, r):
+								if adr in self.labels: del self.labels[adr]
+								break
 							if adr in self.labels and self.labels[adr][0] != labeltype.FUN and self.labels[adr][1].startswith(f'_$switch_{calladdr:05x}'): self.labels[adr][1] += f'_{j}'
 							elif adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.LAB, f'_$switch_{calladdr:05x}_{adr:05x}_case{j}']
-							self.__queue.append(adr)
-							self.__queueregs.append(r)
 							i += 2
 							adr = (seg << 16) | self.read_word(a+i)
 							j += 1
-						logging.debug(f'{GREEN}Jump table processing: {END}Near jump table for {MAGENTA}seg{seg}{END} @ {YELLOW}{a:05X}{END}, size {YELLOW}{j}{END}')
-						self.jump_tables[a] = [j, False, seg]
+
+						if j > 0:
+							logging.debug(f'{GREEN}Jump table processing: {END}Near jump table for {MAGENTA}seg{seg}{END} @ {YELLOW}{a:05X}{END}, size {YELLOW}{j}{END}')
+							self.jump_tables[a] = [j, False, seg]
+							if a not in self.data_labels or (a in self.data_labels and self.data_labels[a].startswith('_unk_')): self.data_labels[a] = f'_jmp_{a:05x}'
+						else: logging.debug(f'{GREEN}Jump table processing: {END}Near jump table @ {YELLOW}{a:05X}{END} not a jump table')
 				if len(self.__queue) > 0: logging.debug('Disassembling jump table functions')
 
 		self.code = dict(sorted(self.code.items()))
@@ -665,14 +679,21 @@ class Disassembly:
 				j += 1
 		if far: self.jump_tables[a] = [size, True]
 		else: self.jump_tables[a] = [size, False, jmpseg]
+		if a not in self.data_labels or (a in self.data_labels and self.data_labels[a].startswith('_unk_')): self.data_labels[a] = f'_jmp_{a:05x}'
 
-	def queue_add(self, addr):
+	def queue_add(self, addr, r = None):
 		if not len(self.__regions): raise ValueError('no code regions loaded')
 		if addr < 0: raise ValueError('address must not be negative')
 		addr &= 0xffffe
 		if addr not in self.code and addr not in self.__queue:
+			if (addr - 2 in self.code and len(self.code[addr - 2][0]) >= 2) or (addr - 4 in self.code and len(self.code[addr - 4][0]) >= 4):
+				logging.debug(f'Address {YELLOW}{addr:05X}{END} not added, as it is in the middle of an instruction')
+				return False
 			self.__queue.append(addr)
-			self.__queueregs.append(self.r.copy())
+			self.__queueregs.append(self.r.copy() if r is None else r.copy())
+			return True
+
+		return True
 
 	def read_word(self, addr):
 		if not len(self.__regions): raise ValueError('no code regions loaded')
