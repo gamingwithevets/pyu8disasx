@@ -15,5 +15,9 @@ The speed of the viewer will depend on your computer's speed as well as the size
 ### Module (`disas.py`)
 The main disassembler module. Custom disassemblers can be made using this module to manually add jump tables or disassemble parts of code that the disassembler was not able to reach.
 
+## Optional dependencies (CLI)
+- [Colorama](https://pypi.org/project/colorama/): For printing colored text in the console.
+- labeltool: Included as a submodule in this repository, but is not required to use the CLI. If not found, label options will be hidden.
+
 ## License
 PyU8disasX is licensed under the [GNU General Public License Version 3](LICENSE).
