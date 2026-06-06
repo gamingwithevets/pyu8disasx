@@ -187,15 +187,50 @@ def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = Fa
 				skip_byte = 1
 			elif addr in interrupts:
 				if not table_mode:
-					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n\n')
 					table_mode = True
 					tbytes_line = 0
 				elif tbytes_mode:
 					if tbytes_line > 0: f.write('\n\n')
 					tbytes_mode = False
 					tbytes_line = 0
-				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(addr), 0))}\n')
+				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(addr), 0))}\n\n')
 				skip_byte = 1
+			elif addr in dis.jump_tables:
+				if not table_mode:
+					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+					table_mode = True
+					tbytes_line = 0
+				elif tbytes_mode:
+					if tbytes_line > 0: f.write('\n\n')
+					else: f.write('\n')
+					tbytes_mode = False
+					tbytes_line = 0
+				entry = dis.jump_tables[addr]
+				size = entry[0]
+				f.write(f'; {addr:05X}\n{dis.data_labels[addr]}:\n')
+				if entry[1]:
+					_size = 0
+					for a in range(addr, addr+size*4, 4):
+						func_name = process_ins_param(dis, disas.Address(dis.read_word(a), dis.read_word(a+2)))
+						f.write(f'{"/*"+tab+format(a, "05X")+tab+"*/ " if addresses else tab}DW OFFSET ({func_name})\n')
+						f.write(f'{"/*"+tab+format(a+2, "05X")+tab+"*/ " if addresses else tab}DW SEG ({func_name})\n')
+						_size += 1
+						if a+4 in dis.jump_tables or a+4 in dis.data_labels or a+4 in dis.code:
+							size = _size
+							break
+					skip_byte = size * 4 - 1 if table_mode else size * 2 - 1
+				else:
+					s = entry[2]
+					_size = 0
+					for a in range(addr, addr+size*2, 2):
+						f.write(f'{"/*"+tab+format(a, "05X")+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(a), s))}\n')
+						_size += 1
+						if a+2 in dis.jump_tables or a+2 in dis.data_labels or a+2 in dis.code:
+							size = _size
+							break
+					skip_byte = size * 2 - 1 if table_mode else size - 1
+				f.write('\n')
 			elif addr in dis.code:
 				if table_mode:
 					if tbytes_mode:
