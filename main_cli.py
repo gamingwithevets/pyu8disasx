@@ -7,10 +7,15 @@ import os
 import io
 import math
 import disas
-import labeltool.labeltool as labeltool
 import dcl
 import logging
 import functools
+
+try:
+	import labeltool.labeltool as labeltool
+	has_labeltool = True
+except ImportError: has_labeltool = False
+
 try:
 	from colorama import init, Fore, Style
 	has_colorama = True
@@ -248,10 +253,11 @@ if __name__ == '__main__':
 	parser.add_argument('file', help = 'filename of ROM to disassemble')
 
 	gr_disas = parser.add_argument_group('disassembler and labels')
-	gr_disas.add_argument('-r', '--romwin', type = lambda x: int(x, 0), help = 'ROM window size. if unspecified and no DCL file is loaded, or ROM window is 0, no ROM window will be present. if specified, overrides DCL specification')
-	gr_disas.add_argument('-l', '--label', action = 'append', help = 'add a label file. data labels override DCL specification and are added to the symbol definitions')
-	gr_disas.add_argument('-d', '--dcl', help = 'load a DCL file. if unspecified, default DCL name will be "foo"')
-	gr_disas.add_argument('--all', action = 'store_true', help = 'disassemble all functions listed in all provided label files')
+	gr_disas.add_argument('-r', '--romwin', type = lambda x: int(x, 0), help = f'ROM window size. if unspecified{" and no DCL file is loaded," if has_labeltool else ""} or ROM window is 0, no ROM window will be present{". if specified, overrides DCL specification" if has_labeltool else ""}')
+	if has_labeltool:
+		gr_disas.add_argument('-l', '--label', action = 'append', help = 'add a label file. data labels override DCL specification and are added to the symbol definitions')
+		gr_disas.add_argument('-d', '--dcl', help = 'load a DCL file. if unspecified, default DCL name will be "foo"')
+		gr_disas.add_argument('--all', action = 'store_true', help = 'disassemble all functions listed in all provided label files')
 
 	gr_output = parser.add_argument_group('output options')
 	gr_output.add_argument('-o', '--output', help = 'filename of output assembly file (default: ROM filename with ASM extension)')
@@ -268,4 +274,5 @@ if __name__ == '__main__':
 	else: output = args.output
 
 	os.chdir(os.path.dirname(os.path.abspath(__file__)))
-	disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses, args.all)
+	if has_labeltool: disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses, args.all)
+	else: disassemble(args.file, output, romwin = args.romwin, addresses = args.addresses)
