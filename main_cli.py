@@ -80,7 +80,7 @@ def log_exc(func, exc):
 		func(f'[{type(exc).__name__}] {exc.filename}{", "+exc.filename2 if exc.filename2 else ""}: {exc.strerror} ({errno})')
 	else: func(f'[{type(exc).__name__}] {exc}')
 
-def disassemble(filename, out, labelfile, dclfile, romwin = None, addresses = False, disas_all = False):
+def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addresses = False, disas_all = False):
 	logging.info('Loading binary')
 	size = 0
 	rom = b''
