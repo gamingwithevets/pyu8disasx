@@ -131,7 +131,13 @@ def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addr
 					else: dis.data_labels[k] = name
 				for k, v in _data_bit_labels.items(): data_bit_labels[k] = '_' + v
 			except Exception as e: log_exc(logging.warning, e)
-	logging.info('Disassembling...')
+	logging.info('Disassembling')
+	dis.disassemble()
+	logging.info('Disassembling vector table')
+	for addr in interrupts:
+		dis.queue_add(addr)
+		func_addr = dis.read_word(addr)
+		if func_addr not in dis.labels: dis.labels[func_addr] = [disas.labeltype.FUN, f'int_{interrupts[addr]}']
 	dis.disassemble()
 	if disas_all:
 		logging.info('Adding undetected functions to queue')

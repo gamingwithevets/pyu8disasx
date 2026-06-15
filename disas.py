@@ -442,6 +442,7 @@ class Disassembly:
 		if not len(self.__regions): raise ValueError('no code regions loaded')
 
 		if not self.__disas:
+			logging.debug('Start disassembling from entry point and BRK handler')
 			self.labels[self.read_word(2)] = [labeltype.FUN, '$$start_up']
 			self.labels[self.read_word(4)] = [labeltype.FUN, '$$brk_reset']
 			self.queue_add(self.read_word(4))
@@ -453,7 +454,6 @@ class Disassembly:
 		dsr_src = None
 		possible_jmp_table_adrs = None
 
-		logging.debug('Start disassembling from entry point and BRK handler')
 		while len(self.__queue) > 0:
 			prev_instr = instr
 
