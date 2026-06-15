@@ -308,6 +308,5 @@ if __name__ == '__main__':
 	if args.output is None: output = os.path.splitext(args.file)[0] + '.asm'
 	else: output = args.output
 
-	os.chdir(os.path.dirname(os.path.abspath(__file__)))
 	if has_labeltool: disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses, args.all)
 	else: disassemble(args.file, output, romwin = args.romwin, addresses = args.addresses)
