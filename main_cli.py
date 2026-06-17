@@ -135,9 +135,9 @@ def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addr
 	dis.disassemble()
 	logging.info('Disassembling vector table')
 	for addr in interrupts:
-		dis.queue_add(addr)
 		func_addr = dis.read_word(addr)
 		if func_addr not in dis.labels: dis.labels[func_addr] = [disas.labeltype.FUN, f'int_{interrupts[addr]}']
+		dis.queue_add(func_addr)
 	dis.disassemble()
 	if disas_all:
 		logging.info('Adding undetected functions to queue')
@@ -187,9 +187,10 @@ def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addr
 					if tbytes_line > 0: f.write('\n\n')
 					tbytes_mode = False
 					tbytes_line = 0
-				if addr == 0: f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/ " if addresses else tab}DW {disas.Address(dis.read_word(0))}\n')
-				elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(2), 0))}\n')
-				elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(4), 0))}\n')
+				word = dis.read_word(addr)
+				if addr == 0: f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/ " if addresses else tab}DW {disas.Address(word)}\n')
+				elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, 0))}\n')
+				elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, 0))}\n')
 				skip_byte = 1
 			elif addr in interrupts:
 				if not table_mode:
@@ -200,7 +201,8 @@ def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addr
 					if tbytes_line > 0: f.write('\n\n')
 					tbytes_mode = False
 					tbytes_line = 0
-				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(addr), 0))}\n\n')
+				word = dis.read_word(addr)
+				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, 0))}\n\n')
 				skip_byte = 1
 			elif addr in dis.jump_tables:
 				if not table_mode:
@@ -218,9 +220,11 @@ def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addr
 				if entry[1]:
 					_size = 0
 					for a in range(addr, addr+size*4, 4):
-						func_name = process_ins_param(dis, disas.Address(dis.read_word(a), dis.read_word(a+2)))
-						f.write(f'{"/*"+tab+format(a, "05X")+tab+"*/ " if addresses else tab}DW OFFSET ({func_name})\n')
-						f.write(f'{"/*"+tab+format(a+2, "05X")+tab+"*/ " if addresses else tab}DW SEG ({func_name})\n')
+						word1 = dis.read_word(a)
+						word2 = dis.read_word(a+2)
+						func_name = process_ins_param(dis, disas.Address(word1, word2))
+						f.write(f'{"/*"+tab+format(a, "05X")+tab+format(word1,"04X")+tab*2+" */ " if addresses else tab}DW OFFSET ({func_name})\n')
+						f.write(f'{"/*"+tab+format(a+2, "05X")+tab+format(word2,"04X")+tab*2+" */ " if addresses else tab}DW SEG ({func_name})\n')
 						_size += 1
 						if a+4 in dis.jump_tables or a+4 in dis.data_labels or a+4 in dis.code:
 							size = _size
@@ -230,7 +234,8 @@ def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addr
 					s = entry[2]
 					_size = 0
 					for a in range(addr, addr+size*2, 2):
-						f.write(f'{"/*"+tab+format(a, "05X")+tab+"*/ " if addresses else tab}DW {process_ins_param(dis, disas.Address(dis.read_word(a), s))}\n')
+						word = dis.read_word(a)
+						f.write(f'{"/*"+tab+format(a, "05X")+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, s))}\n')
 						_size += 1
 						if a+2 in dis.jump_tables or a+2 in dis.data_labels or a+2 in dis.code:
 							size = _size

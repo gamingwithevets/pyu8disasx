@@ -514,7 +514,9 @@ class Disassembly:
 			ins_len = len(self.__instrl)*2
 			if dsr_src is None: self.code[self.pc-ins_len] = [self.__instrl, instr]
 			else:
+				if len(self.__instrl) == 0: logging.warning(f'{GREEN}{self.pc-ins_len:05X}: {END}No instruction words were assigned to code at address {YELLOW}{self.pc-ins_len:05X}{END}')
 				self.code[self.pc-ins_len] = [[self.__instrl[0]], prev_instr]
+				if len(self.__instrl) < 2: logging.warning(f'{GREEN}{self.pc-ins_len:05X}: {END}No instruction words were assigned to code at address {YELLOW}{self.pc-ins_len+2:05X}{END}')
 				self.code[self.pc-ins_len+2] = [self.__instrl[1:], instr]
 
 			mid_addr = self.pc-ins_len + (2 if dsr_src is None else 4)
@@ -591,15 +593,17 @@ class Disassembly:
 					i = 0
 					#print('='*5, hex(a), '='*5)
 					if entry[1]:
-						adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
+						seg_tmp = self.read_word(a+i+2)
+						adr = (seg_tmp << 16) | self.read_word(a+i)
 						# If index 0 appears to not be an address we just keep grabbing addresses until we find something valid
 						# as CCU8 tends to subtract constant index offsets from the pointer address directly
-						while adr_s > adr or adr > adr_l:
+						while adr_s > adr or adr > adr_l or seg_tmp > 0xf:
 							i += 4
-							adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
+							seg_tmp = self.read_word(a+i+2)
+							adr = (seg_tmp << 16) | self.read_word(a+i)
 						addr = a+i
 						size = 0
-						while adr_s <= adr <= adr_l:
+						while adr_s <= adr <= adr_l and seg_tmp < 0x10:
 							#print(hex(adr))
 							if not self.queue_add(adr, r):
 								if adr in self.labels: del self.labels[adr]
@@ -607,7 +611,8 @@ class Disassembly:
 							if adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
 							i += 4
 							size += 1
-							adr = (self.read_word(a+i+2) << 16) | self.read_word(a+i)
+							seg_tmp = self.read_word(a+i+2)
+							adr = (seg_tmp << 16) | self.read_word(a+i)
 
 						if size > 0:
 							logging.debug(f'{GREEN}Jump table processing: {END}Far jump table @ {YELLOW}{addr:05X}{END}, size {YELLOW}{size}{END}')
