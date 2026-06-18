@@ -638,7 +638,7 @@ class Disassembly:
 						if j > 0:
 							logging.debug(f'{GREEN}Jump table processing: {END}Near jump table for {MAGENTA}seg{seg}{END} @ {YELLOW}{a:05X}{END}, size {YELLOW}{j}{END}')
 							self.jump_tables[a] = [j, False, seg]
-							if a not in self.data_labels or (a in self.data_labels and self.data_labels[a].startswith('_unk_')): self.data_labels[a] = f'_jmp_{a:05x}'
+							if a not in self.data_labels or (a in self.data_labels and self.data_labels[a].startswith('_unk_')): self.data_labels[a] = f'_switch_{calladdr:05x}_jmp_{a:05x}'
 						else: logging.debug(f'{GREEN}Jump table processing: {END}Near jump table @ {YELLOW}{a:05X}{END} not a jump table')
 				if len(self.__queue) > 0: logging.debug('Disassembling jump table functions')
 
