@@ -136,7 +136,7 @@ def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addr
 	logging.info('Disassembling vector table')
 	for addr in interrupts:
 		func_addr = dis.read_word(addr)
-		if func_addr not in dis.labels: dis.labels[func_addr] = [disas.labeltype.FUN, f'int_{interrupts[addr]}']
+		if func_addr not in dis.labels: dis.labels[func_addr] = [disas.labeltype.FUN, f'_int_{interrupts[addr]}']
 		dis.queue_add(func_addr)
 	dis.disassemble()
 	if disas_all:
