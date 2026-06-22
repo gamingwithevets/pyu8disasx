@@ -36,9 +36,9 @@ logging.addLevelName(logging.WARNING, f'{YELLOW}WARNING')
 logging.addLevelName(logging.ERROR, f'{RED}ERROR')
 logging.addLevelName(logging.DEBUG, f'{CYAN}DEBUG')
 
-def process_ins_param(dis, param, is_lea = False, data_bit_labels = None):
+def process_ins_param(dis, param, is_lea = False, data_bit_labels = None, lo = False):
 	if data_bit_labels is None: data_bit_labels = {}
-	if type(param) == list: return ', '.join(param)
+	if type(param) == list: return case(', '.join(param), lo)
 	elif type(param) == disas.Address:
 		if param.seg is None:
 			addr = param.addr.value
@@ -60,9 +60,9 @@ def process_ins_param(dis, param, is_lea = False, data_bit_labels = None):
 		val = param.disp.get()
 		if param.disp.bits == 16 and ((val >= 0 and val <= 0x1f) or (val >= -0x20 and val < 0)):
 			param.register.ptr = False
-			return str(param) + '  ;  Disp16 used instead of Disp6'
+			return case(str(param), lo) + '  ;  Disp16 used instead of Disp6'
 
-	return str(param)
+	return case(str(param), lo)
 
 @functools.lru_cache
 def get_byte(b):
@@ -80,7 +80,9 @@ def log_exc(func, exc):
 		func(f'[{type(exc).__name__}] {exc.filename}{", "+exc.filename2 if exc.filename2 else ""}: {exc.strerror} ({errno})')
 	else: func(f'[{type(exc).__name__}] {exc}')
 
-def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addresses = False, disas_all = False):
+def case(s, lo): return str(s).lower() if lo else str(s).upper()
+
+def disassemble(filename, out, labelfile = '', dclfile = '', romwin = None, addresses = False, disas_all = False, lo = False):
 	logging.info('Loading binary')
 	size = 0
 	rom = b''
@@ -155,9 +157,9 @@ For more information, please visit:
 https://github.com/gamingwithevets/pyu8disasx
 ========================================================= */
 
-TYPE({dcl_name})
-MODEL {"SMALL" if size <= 0x10000 else "LARGE"}
-ROMWINDOW 0, {romwin-1:05X}H
+{case("TYPE", lo)}({dcl_name})
+{case("MODEL", lo)} {case("SMALL", lo) if size <= 0x10000 else case("LARGE", lo)}
+{case("ROMWINDOW 0, "+format(romwin-1, "05X")+"H", lo)}
 
 ''')
 
@@ -170,7 +172,7 @@ ROMWINDOW 0, {romwin-1:05X}H
 		if k in sfr_labels: continue
 		tabs = '\t'*math.ceil((l - len(v)) / 4)
 		if not tabs: tabs = '\t'
-		if k >= romwin: equs += f'{v}{tabs}EQU {"" if hex(k)[2].isnumeric() else "0"}{k:04X}H\n'
+		if k >= romwin: equs += f'{v}{tabs}{case("EQU", lo)} {"" if hex(k)[2].isnumeric() else "0"}{case(format(k, "04X")+"H", lo)}\n'
 		else: table_dt[k] = v
 
 	f.write(equs)
@@ -182,7 +184,7 @@ ROMWINDOW 0, {romwin-1:05X}H
 		tbytes_line = 0
 		tbytes_mode = False
 		skip_byte = 0
-		f.write(f'\n{"T" if table_mode else "C"}SEG #{seg} AT 0\n\n')
+		f.write(case(f'\n{"T" if table_mode else "C"}SEG #{seg} AT 0\n\n', lo))
 		for addr16 in range(0x10000):
 			if not table_mode and addr16 % 2 != 0: continue
 			if skip_byte:
@@ -191,7 +193,7 @@ ROMWINDOW 0, {romwin-1:05X}H
 			addr = (seg << 16) + addr16
 			if addr < 6:
 				if not table_mode:
-					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+					if addr < romwin: f.write(case(f'\nTSEG #{seg} AT {addr:05X}H\n', lo))
 					table_mode = True
 					tbytes_line = 0
 				elif tbytes_mode:
@@ -199,13 +201,13 @@ ROMWINDOW 0, {romwin-1:05X}H
 					tbytes_mode = False
 					tbytes_line = 0
 				word = dis.read_word(addr)
-				if addr == 0: f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/ " if addresses else tab}DW {disas.Address(word)}\n')
-				elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, 0))}\n')
-				elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, 0))}\n')
+				if addr == 0: f.write(f'; Initial SP\n{"/*"+tab+"00000"+tab+"*/ " if addresses else tab}{case("DW", lo)} {case(disas.Address(word), lo)}\n')
+				elif addr == 2: f.write(f'; Entry point\n{"/*"+tab+"00002"+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}{case("DW", lo)} {process_ins_param(dis, disas.Address(word, 0), lo)}\n')
+				elif addr == 4: f.write(f'; BRK interrupt entry point\n{"/*"+tab+"00004"+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}{case("DW", lo)} {process_ins_param(dis, disas.Address(word, 0), lo)}\n')
 				skip_byte = 1
 			elif addr in interrupts:
 				if not table_mode:
-					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n\n')
+					if addr < romwin: f.write(case(f'\nTSEG #{seg} AT {addr:05X}H\n\n', lo))
 					table_mode = True
 					tbytes_line = 0
 				elif tbytes_mode:
@@ -213,11 +215,11 @@ ROMWINDOW 0, {romwin-1:05X}H
 					tbytes_mode = False
 					tbytes_line = 0
 				word = dis.read_word(addr)
-				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, 0))}\n\n')
+				f.write(f'; Interrupt: {interrupts[addr]}\n{"/*"+tab+format(addr, "05X")+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}{case("DW", lo)} {process_ins_param(dis, disas.Address(word, 0), lo)}\n\n')
 				skip_byte = 1
 			elif addr in dis.jump_tables:
 				if not table_mode:
-					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n')
+					if addr < romwin: f.write(case(f'\nTSEG #{seg} AT {addr:05X}H\n', lo))
 					table_mode = True
 					tbytes_line = 0
 				elif tbytes_mode:
@@ -234,8 +236,8 @@ ROMWINDOW 0, {romwin-1:05X}H
 						word1 = dis.read_word(a)
 						word2 = dis.read_word(a+2)
 						func_name = process_ins_param(dis, disas.Address(word1, word2))
-						f.write(f'{"/*"+tab+format(a, "05X")+tab+format(word1,"04X")+tab*2+" */ " if addresses else tab}DW OFFSET ({func_name})\n')
-						f.write(f'{"/*"+tab+format(a+2, "05X")+tab+format(word2,"04X")+tab*2+" */ " if addresses else tab}DW SEG ({func_name})\n')
+						f.write(f'{"/*"+tab+format(a, "05X")+tab+format(word1,"04X")+tab*2+" */ " if addresses else tab}{case("DW OFFSET", lo)} ({func_name})\n')
+						f.write(f'{"/*"+tab+format(a+2, "05X")+tab+format(word2,"04X")+tab*2+" */ " if addresses else tab}{case("DW OFFSET", lo)} ({func_name})\n')
 						_size += 1
 						if a+4 in dis.jump_tables or a+4 in dis.data_labels or a+4 in dis.code:
 							size = _size
@@ -246,7 +248,7 @@ ROMWINDOW 0, {romwin-1:05X}H
 					_size = 0
 					for a in range(addr, addr+size*2, 2):
 						word = dis.read_word(a)
-						f.write(f'{"/*"+tab+format(a, "05X")+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}DW {process_ins_param(dis, disas.Address(word, s))}\n')
+						f.write(f'{"/*"+tab+format(a, "05X")+tab+format(word,"04X")+tab*2+" */ " if addresses else tab}{case("DW", lo)} {process_ins_param(dis, disas.Address(word, s), lo)}\n')
 						_size += 1
 						if a+2 in dis.jump_tables or a+2 in dis.data_labels or a+2 in dis.code:
 							size = _size
@@ -259,7 +261,7 @@ ROMWINDOW 0, {romwin-1:05X}H
 						if tbytes_line > 0: f.write('\n')
 						tbytes_mode = False
 						tbytes_line = 0
-					if addr < romwin: f.write(f'\nCSEG #{seg} AT {addr:05X}H\n')
+					if addr < romwin: f.write(case(f'\nCSEG #{seg} AT {addr:05X}H\n', lo))
 					table_mode = False
 				if addr in dis.labels:
 					if dis.labels[addr][0] == disas.labeltype.FUN: f.write(f'\n; {addr:05X}\n')
@@ -269,16 +271,16 @@ ROMWINDOW 0, {romwin-1:05X}H
 				instr = ins[1]
 				#string = f'{addr >> 16:X}:{addr & 0xfffe:04X}H\t\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))}\t{instr[0]}'
 				if addresses:
-					string = f'/*\t{addr:05X}\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))} */ {instr[0]}'
-				else: string = f'\t{instr[0]}'
+					string = f'/*\t{addr:05X}\t{"".join([format(a, "04X") for a in instrl])}{tab*(3-len(instrl))} */ {case(instr[0], lo)}'
+				else: string = f'\t{case(instr[0], lo)}'
 				is_lea = instr[0] == 'LEA'
-				if len(instr) >= 2: string += ' ' + process_ins_param(dis, instr[1], is_lea, data_bit_labels)
-				if len(instr) == 3: string += ', ' + process_ins_param(dis, instr[2], is_lea, data_bit_labels)
+				if len(instr) >= 2: string += ' ' + process_ins_param(dis, instr[1], is_lea, data_bit_labels, lo)
+				if len(instr) == 3: string += ', ' + process_ins_param(dis, instr[2], is_lea, data_bit_labels, lo)
 				f.write(string + '\n')
 				skip_byte = len(instrl) - 1
 			else:
 				if not table_mode:
-					if addr < romwin: f.write(f'\nTSEG #{seg} AT {addr:05X}H\n\n')
+					if addr < romwin: f.write(case(f'\nTSEG #{seg} AT {addr:05X}H\n\n', lo))
 					else: f.write('\n')
 					table_mode = True
 					tbytes_line = 0
@@ -290,8 +292,8 @@ ROMWINDOW 0, {romwin-1:05X}H
 					tbytes_line = 0
 					f.write(f'; {addr:05X}\n{table_dt[addr]}:\n')
 				
-				f.write(f'{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}DB ' if tbytes_line == 0 else ', ')
-				f.write(get_byte(rom[addr]))
+				f.write(f'{"/*"+tab+format(addr, "05X")+tab+"*/ " if addresses else tab}{case("DB", lo)} ' if tbytes_line == 0 else ', ')
+				f.write(case(get_byte(rom[addr]), lo))
 				tbytes_line += 1
 				if tbytes_line == 16:
 					f.write('\n')
@@ -299,7 +301,7 @@ ROMWINDOW 0, {romwin-1:05X}H
 
 		if tbytes_mode: f.write('\n')
 
-	f.write(f'\nEND\n')
+	f.write(case('\nEND\n', lo))
 	
 	logging.info('Copying disassembly to file')
 	with open(out, 'w') as g: g.write(f.getvalue())
@@ -321,6 +323,7 @@ if __name__ == '__main__':
 	gr_output = parser.add_argument_group('output options')
 	gr_output.add_argument('-o', '--output', help = 'filename of output assembly file (default: ROM filename with ASM extension)')
 	gr_output.add_argument('-a', '--addresses', action = 'store_true', help = 'add addresses and raw bytes/words to disassembly')
+	gr_output.add_argument('--lowercase', action = 'store_true', help = 'force all instructions and number expressions to lowercase')
 	
 	gr_misc = parser.add_argument_group('miscellaneous')
 	gr_misc.add_argument('--debug', action = 'store_true', help = 'enable debug logs')
@@ -332,5 +335,5 @@ if __name__ == '__main__':
 	if args.output is None: output = os.path.splitext(args.file)[0] + '.asm'
 	else: output = args.output
 
-	if has_labeltool: disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses, args.all)
-	else: disassemble(args.file, output, romwin = args.romwin, addresses = args.addresses)
+	if has_labeltool: disassemble(args.file, output, args.label, args.dcl, args.romwin, args.addresses, args.all, args.lowercase)
+	else: disassemble(args.file, output, romwin = args.romwin, addresses = args.addresses, lo = args.lowercase)
