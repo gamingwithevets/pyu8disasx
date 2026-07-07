@@ -172,7 +172,11 @@ https://github.com/gamingwithevets/pyu8disasx
 		if k in sfr_labels: continue
 		tabs = '\t'*math.ceil((l - len(v)) / 4)
 		if not tabs: tabs = '\t'
-		if k >= romwin: equs += f'{v}{tabs}{case("EQU", lo)} {"" if hex(k)[2].isnumeric() else "0"}{case(format(k, "04X")+"H", lo)}\n'
+		if k >= 0x10000:
+			_s = k >> 16
+			_k = k & 0xffff
+			equs += f'{v}{tabs}{case("EQU", lo)} {"" if _s < 10 else "0"}{case(format(_s, "X")+"H", lo)}:{"" if hex(_k)[2].isnumeric() else "0"}{case(format(_k, "04X")+"H", lo)}\n' 
+		elif k >= romwin: equs += f'{v}{tabs}{case("EQU", lo)} {"" if hex(k)[2].isnumeric() else "0"}{case(format(k, "04X")+"H", lo)}\n'
 		else: table_dt[k] = v
 
 	f.write(equs)
