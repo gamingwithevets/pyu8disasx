@@ -1,3 +1,10 @@
+## We've moved!
+The project will continue on [Codeberg](https://codeberg.org/gwetm/pyu8disasx). See you there!
+
+This repository has also been archived, as a result.
+
+---
+
 **PyU8disasX** is an nX-U8/100 / nX-U16/100 disassembler, and is an upgraded rewritten version of [PyU8disas](https://github.com/gamingwithevets/pyu8disas).
 
 ## Usage
