@@ -466,7 +466,7 @@ Architecture: {platform.machine()}{dnl + "Settings file is saved to working dire
 		help_menu = tk.Menu(menubar)
 		help_menu.add_command(label='Check for updates', command=self.UpdaterGUI.init_window)
 		help_menu.add_command(label=f'About {pg_name}', command=self.about_menu)
-		help_menu.add_command(label = 'Join Casio Calculator Reverse Engineering', command = lambda: webbrowser.open_new_tab('https://discord.gg/bG9BCJ5MW3'))
+		help_menu.add_command(label = 'Join Casio Calculator Reverse Engineering', command = lambda: webbrowser.open_new_tab('https://discord.gg/WZEsVHjw2v'))
 		menubar.add_cascade(label='Help', menu=help_menu)
 
 		self.window.config(menu=menubar)

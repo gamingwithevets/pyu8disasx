@@ -6,6 +6,7 @@ if __name__ == '__main__':
 from enum import IntEnum
 import os
 import math
+import inspect
 import logging
 try:
 	from colorama import init, Fore
@@ -398,25 +399,32 @@ class Disassembly:
 		['ICESWI',	0xfeff,	None,									None],  # Triggers emulator software interrupt
 	]
 
-	def __init__(self, code_bytes = None, pad_word = 0xffff, romwin = 0x8000):
+	def __init__(self, code_bytes = None, start = 0, pad_word = 0xffff, romwin = 0x8000):
 		self.code = {}
 		self.conds = []
 		self.labels = {}
 		self.data_labels = {}
+		self.data_labels_addr = {}
 		self.filename = ''
 		
 		self.__regions = []
-		if code_bytes is not None: self.add_region(0, code_bytes)
-		self.__romwin = romwin
+		if code_bytes is not None: self.add_region(start, code_bytes)
+		self.romwin = romwin
 		self.__pad_word = pad_word
 		self.pc = 0
 		self.r = [0]*16
+		self.r_addr = [0]*16
+		self.rollover = False
 		self.jump_tables = {}
 		self.__queue = []
 		self.__queueregs = []
+		self.__queueregs_addr = []
 		self.__jump_tables = []
 		self.__jump_tablesregs = []
+		self.__jump_tablesregs_addr = []
 		self.__instrl = []
+
+		self.__curr_log_prefix = ''
 
 		self.__disas = False
 
@@ -436,6 +444,7 @@ class Disassembly:
 		if n % size != 0: raise ValueError('invalid register for specified size')
 		for i in range(size):
 			self.r[n+i] = value & 0xff
+			self.r_addr[n+i] = self.pc-2
 			value >>= 8
 
 	def disassemble(self):
@@ -450,20 +459,37 @@ class Disassembly:
 			self.__disas = True
 
 		instr = ['', '', '']
+		ins_len = None
 		prev_instr = ['', '', '']
+		prev_ins_len = None
 		dsr_src = None
 		possible_jmp_table_adrs = None
 
 		while len(self.__queue) > 0:
 			prev_instr = instr
+			prev_ins_len = ins_len
 
 			self.pc = self.__queue.pop()
 			self.r = self.__queueregs.pop().copy()
+			self.r_addr = self.__queueregs_addr.pop().copy()
 			while self.pc in self.__queue:
 				idx = self.__queue.index(self.pc)
 				self.__queue.pop(idx)
 				self.__queueregs.pop(idx)
-			instr_bytes = self.fetch()
+				self.__queueregs_addr.pop(idx)
+
+			self.__curr_log_prefix = f'{GREEN}{self.pc:05X}: {END}'
+			if self.rollover:
+				self.rollover = False
+				logging.debug(f'{self.__curr_log_prefix}PC rollover detected, skipping this address for now')
+				continue
+			else:
+				instr_bytes = self.fetch()
+				if instr_bytes is None:
+					logging.debug(f'{self.__curr_log_prefix}Address is unmapped, removing from labels')
+					self.__instrl = []
+					if self.pc - 2 in self.labels: del self.labels[self.pc - 2]
+					continue
 			try:
 				_instr, dsr = self.decode(instr_bytes)
 				if dsr:
@@ -485,13 +511,13 @@ class Disassembly:
 					if len(instr) > 1 and instr[0] in ('L', 'ST', 'SB', 'TB', 'RB'):
 						if type(instr[-1]) == Address:
 							addr = instr[-1].addr.value
-							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}' if addr >= self.__romwin else f'_unk_{addr:05x}'
+							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}' if addr >= self.romwin else f'_unk_{addr:05x}'
 						elif type(instr[-1]) == DSRPrefix and type(instr[-1].dsr) == Num and type(instr[-1].item) == Address:
 							addr = (instr[-1].dsr.value << 16) | instr[-1].item.addr.value
-							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}' if addr >= self.__romwin else f'_unk_{addr:05x}'
+							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}' if addr >= self.romwin else f'_unk_{addr:05x}'
 						elif type(instr[-1]) == BitOffset and type(instr[-1].item) == Address:
 							addr = instr[-1].item.addr.value
-							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}' if addr >= self.__romwin else f'_unk_{addr:05x}'
+							if addr not in self.data_labels: self.data_labels[addr] = f'_d_{addr:05X}' if addr >= self.romwin else f'_unk_{addr:05x}'
 
 			except RuntimeError: instr = ['DW', Num(16, instr_bytes, False)]
 
@@ -514,14 +540,14 @@ class Disassembly:
 			ins_len = len(self.__instrl)*2
 			if dsr_src is None: self.code[self.pc-ins_len] = [self.__instrl, instr]
 			else:
-				if len(self.__instrl) == 0: logging.warning(f'{GREEN}{self.pc-ins_len:05X}: {END}No instruction words were assigned to code at address {YELLOW}{self.pc-ins_len:05X}{END}')
+				if len(self.__instrl) == 0: logging.warning(f'{self.__curr_log_prefix}No instruction words were assigned to code at address {YELLOW}{self.pc-ins_len:05X}{END}')
 				self.code[self.pc-ins_len] = [[self.__instrl[0]], prev_instr]
-				if len(self.__instrl) < 2: logging.warning(f'{GREEN}{self.pc-ins_len:05X}: {END}No instruction words were assigned to code at address {YELLOW}{self.pc-ins_len+2:05X}{END}')
+				if len(self.__instrl) < 2: logging.warning(f'{self.__curr_log_prefix}No instruction words were assigned to code at address {YELLOW}{self.pc-ins_len+2:05X}{END}')
 				self.code[self.pc-ins_len+2] = [self.__instrl[1:], instr]
 
 			mid_addr = self.pc-ins_len + (2 if dsr_src is None else 4)
 			if ins_len == (4 if dsr_src is None else 6) and mid_addr in self.code:
-				logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Removed address {YELLOW}{mid_addr:05X} from disassembly and labels{END}')
+				logging.debug(f'{self.__curr_log_prefix}Removed address {YELLOW}{mid_addr:05X} from disassembly and labels{END}')
 				del self.code[mid_addr]
 				if mid_addr in self.labels: del self.labels[mid_addr]
 
@@ -533,24 +559,32 @@ class Disassembly:
 			if instr[0] == 'PUSH' and type(instr[1]) == Register and instr[1].size == 2:
 				if prev_instr[0] == 'L' and prev_instr[1] == instr[1] and type(prev_instr[2]) == Pointer \
 					and prev_instr[2].disp is not None and prev_instr[2].disp.bits == 16 and prev_instr[2].disp.get() >= 6:
-					logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Possible far jump table at address {YELLOW}{prev_instr[2].disp.value:05X}{END}')
+					logging.debug(f'{self.__curr_log_prefix}Possible far jump table at address {YELLOW}{prev_instr[2].disp.value:05X}{END}')
 					possible_jmp_table_adrs = prev_instr[2].disp.value
+					self.data_labels_addr[possible_jmp_table_adrs] = {'word': self.pc - ins_len - prev_ins_len}
 				else:
-					if possible_jmp_table_adrs is not None: logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Far jump table {YELLOW}{possible_jmp_table_adrs:05X}{END} {RED}not{END} a jump table')
+					if possible_jmp_table_adrs is not None: logging.debug(f'{self.__curr_log_prefix}Far jump table {YELLOW}{possible_jmp_table_adrs:05X}{END} {RED}not{END} a jump table')
+					if possible_jmp_table_adrs in self.data_labels_addr: del self.data_labels_addr[possible_jmp_table_adrs]
 					possible_jmp_table_adrs = None
 			if instr[0] == 'PUSH' and type(instr[1]) == list and 'LR' in instr[1]:
-				if possible_jmp_table_adrs is not None: logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Far jump table {YELLOW}{possible_jmp_table_adrs:05X}{END} {RED}not{END} a jump table')
+				if possible_jmp_table_adrs is not None: logging.debug(f'{self.__curr_log_prefix}Far jump table {YELLOW}{possible_jmp_table_adrs:05X}{END} {RED}not{END} a jump table')
+				if possible_jmp_table_adrs in self.data_labels_addr: del self.data_labels_addr[possible_jmp_table_adrs]
 				possible_jmp_table_adrs = None
 			if instr[0] in ('B', 'BL') and type(instr[1]) == Register:
 				if prev_instr[0] == 'L' and prev_instr[1] == instr[1]:
-					if prev_instr[2].disp is not None: ptr_adr = prev_instr[2].disp.value
+					if type(prev_instr[2]) == Pointer and prev_instr[2].disp is not None: ptr_adr = prev_instr[2].disp.value
 					else: ptr_adr = self.get_r(2, instr[1].n)
 					#print(hex(self.pc-2), hex(ptr_adr))
 					if ptr_adr >= 6:
 						# B/BL ERn
-						logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Near jump table @ {YELLOW}{ptr_adr:05X}{END}')
+						logging.debug(f'{self.__curr_log_prefix}Near jump table @ {YELLOW}{ptr_adr:05X}{END}')
 						self.__jump_tables.append([ptr_adr, False, (self.pc-ins_len) >> 16, self.pc-ins_len])
 						self.__jump_tablesregs.append(self.r.copy())
+						self.__jump_tablesregs_addr.append(self.r_addr.copy())
+						if type(prev_instr[2]) == Pointer and prev_instr[2].disp is None: self.data_labels_addr[ptr_adr] = {'byte1': self.r_addr[instr[1].n], 'byte2': self.r_addr[instr[1].n+1]}
+						else:
+							self.data_labels_addr[ptr_adr] = {'word': self.pc - ins_len - prev_ins_len}
+							logging.debug(f'{self.__curr_log_prefix}Near jump table address @ {YELLOW}{self.pc - ins_len - prev_ins_len:05X}{END}')
 				if instr[0] != 'B': self.queue_add(self.pc)
 			elif (instr[0] == 'B' and type(instr[1]) == Address) or instr[0] == 'BC':
 				radr = instr[-1].get_combined()
@@ -566,31 +600,41 @@ class Disassembly:
 				is_poppc = self.code[cadr][1][0] == 'POP' and type(self.code[cadr][1][1]) != Register and 'PC' in self.code[cadr][1][1] if cadr in self.code else self.read_word(cadr) & 0xf2ff == 0xf28e
 				if is_poppc and possible_jmp_table_adrs:
 					# POP PC (__indru8)
-					logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Confirmed far jump table @ {YELLOW}{possible_jmp_table_adrs:05X}{END}')
+					logging.debug(f'{self.__curr_log_prefix}Confirmed far jump table @ {YELLOW}{possible_jmp_table_adrs:05X}{END}')
 					self.__jump_tables.append([possible_jmp_table_adrs, True])
 					self.__jump_tablesregs.append(self.r.copy())
+					self.__jump_tablesregs_addr.append(self.r_addr.copy())
 					possible_jmp_table_adrs = None
 					if cadr not in self.labels or (cadr in self.labels and self.labels[cadr][1] != '__indru8'):
-						logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Found {MAGENTA}__indru8{END} @ {YELLOW}{cadr:05X}{END}')
+						logging.debug(f'{self.__curr_log_prefix}Found {MAGENTA}__indru8{END} @ {YELLOW}{cadr:05X}{END}')
 						self.labels[cadr] = [labeltype.FUN, '__indru8']
 			elif instr[0] == 'RT' or instr[0] == 'RTI' or (instr[0] == 'POP' and type(instr[1]) == list and 'PC' in instr[1]):
 				if instr[0] == 'POP' and possible_jmp_table_adrs:
 					# POP PC
-					logging.debug(f'{GREEN}{self.pc-ins_len:05X}: {END}Confirmed far jump table @ {YELLOW}{possible_jmp_table_adrs:05X}{END}')
+					logging.debug(f'{self.__curr_log_prefix}Confirmed far jump table @ {YELLOW}{possible_jmp_table_adrs:05X}{END}')
 					self.__jump_tables.append([possible_jmp_table_adrs, True])
 					self.__jump_tablesregs.append(self.r.copy())
+					self.__jump_tablesregs_addr.append(self.r_addr.copy())
 					possible_jmp_table_adrs = None
 			else: self.queue_add(self.pc)
 
 			if len(self.__queue) == 0:
-				if len(self.__queue) > 0: logging.debug('Disassembling jump table functions')
+				self.__curr_log_prefix = f'{GREEN}Jump table processing: {END}'
 				while len(self.__jump_tables) > 0:
 					entry = self.__jump_tables.pop()
 					r = self.__jump_tablesregs.pop()
+					r_addr = self.__jump_tablesregs_addr.pop()
 					adr_s = min(self.code)
+					if adr_s < 6: adr_s = 6
 					adr_l = max(self.code)
 					a = entry[0]
 					i = 0
+					og_addr = a
+					ref_data = None
+					if og_addr in self.data_labels: del self.data_labels[og_addr]
+					if og_addr in self.data_labels_addr:
+						ref_data = self.data_labels_addr[og_addr]
+						del self.data_labels_addr[og_addr]
 					#print('='*5, hex(a), '='*5)
 					if entry[1]:
 						seg_tmp = self.read_word(a+i+2)
@@ -605,7 +649,7 @@ class Disassembly:
 						size = 0
 						while adr_s <= adr <= adr_l and seg_tmp < 0x10:
 							#print(hex(adr))
-							if not self.queue_add(adr, r):
+							if not self.queue_add(adr, r, r_addr):
 								if adr in self.labels: del self.labels[adr]
 								break
 							if adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
@@ -615,10 +659,15 @@ class Disassembly:
 							adr = (seg_tmp << 16) | self.read_word(a+i)
 
 						if size > 0:
-							logging.debug(f'{GREEN}Jump table processing: {END}Far jump table @ {YELLOW}{addr:05X}{END}, size {YELLOW}{size}{END}')
+							logging.debug(f'{self.__curr_log_prefix}Far jump table @ {YELLOW}{addr:05X}{END}, size {YELLOW}{size}{END}')
 							self.jump_tables[addr] = [size, True]
 							if addr not in self.data_labels or (addr in self.data_labels and self.data_labels[addr].startswith('_unk_')): self.data_labels[addr] = f'_jmp_{addr:05x}'
-						else: logging.debug(f'{GREEN}Jump table processing: {END}Far jump table @ {YELLOW}{addr:05X}{END} not a jump table')
+							if ref_data is not None:
+								ref_data['offset'] = addr - og_addr
+								self.data_labels_addr[addr] = ref_data
+						else:
+							logging.debug(f'{self.__curr_log_prefix}Far jump table @ {YELLOW}{addr:05X}{END} not a jump table')
+							if addr in self.data_labels_addr: del self.data_labels_addr[addr]
 					else:
 						seg = entry[2]
 						adr = (seg << 16) | self.read_word(a+i)
@@ -626,7 +675,7 @@ class Disassembly:
 						j = 0
 						while adr_s <= adr <= adr_l and adr & 0xffff > 0 and adr % 2 == 0:
 							#print(hex(adr))
-							if not self.queue_add(adr, r):
+							if not self.queue_add(adr, r, r_addr):
 								if adr in self.labels: del self.labels[adr]
 								break
 							if adr in self.labels and self.labels[adr][0] != labeltype.FUN and self.labels[adr][1].startswith(f'_$switch_{calladdr:05x}'): self.labels[adr][1] += f'_{j}'
@@ -639,7 +688,10 @@ class Disassembly:
 							logging.debug(f'{GREEN}Jump table processing: {END}Near jump table for {MAGENTA}seg{seg}{END} @ {YELLOW}{a:05X}{END}, size {YELLOW}{j}{END}')
 							self.jump_tables[a] = [j, False, seg]
 							if a not in self.data_labels or (a in self.data_labels and self.data_labels[a].startswith('_unk_')): self.data_labels[a] = f'_switch_{calladdr:05x}_jmp_{a:05x}'
-						else: logging.debug(f'{GREEN}Jump table processing: {END}Near jump table @ {YELLOW}{a:05X}{END} not a jump table')
+							if ref_data is not None: self.data_labels_addr[a] = ref_data
+						else:
+							logging.debug(f'{GREEN}Jump table processing: {END}Near jump table @ {YELLOW}{a:05X}{END} not a jump table')
+							if addr in self.data_labels_addr: del self.data_labels_addr[addr]
 				if len(self.__queue) > 0: logging.debug('Disassembling jump table functions')
 
 		self.code = dict(sorted(self.code.items()))
@@ -653,15 +705,17 @@ class Disassembly:
 		if start < 0: raise ValueError('start address must not be negative')
 
 		self.__regions.append((start, code_bytes))
+		logging.debug(f'Mapped region {start:05X}-{start+len(code_bytes)-1:05X}. Minimum address is now {self.min_addr():05X}')
 
 	def clear_all_regions(self): self.__regions.clear()
 
-	def max(self): return math.ceil(max(t[0] for t in self.__regions) / 0x10000) * 0x10000
+	def min_addr(self): return math.ceil(min(t[0] for t in self.__regions) / 0x10000) * 0x10000
 
 	def is_queue_empty(self): return len(self.__queue) == 0
 
 	def jmptable_add(self, addr, size, far = False, seg = 0, jmpseg = 0, calladdr = 0, bl = False):
 		r = [0]*16
+		r_addr = [0]*16
 		a = (seg << 16) | addr
 		i = 0
 		#print('='*5, hex(a), '='*5)
@@ -671,6 +725,7 @@ class Disassembly:
 				if adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
 				self.__queue.append(adr)
 				self.__queueregs.append(r)
+				self.__queueregs_addr.append(r_addr)
 		else:
 			j = 0
 			for i in range(0, size*2, 2):
@@ -680,38 +735,62 @@ class Disassembly:
 					elif adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.LAB, f'_$switch_{calladdr:05x}_{adr:05x}_case{j}']
 				elif adr not in self.labels or (adr in self.labels and self.labels[adr][0] != labeltype.FUN): self.labels[adr] = [labeltype.FUN, f'_f_{adr:05X}']
 				self.__queue.append(adr)
-				self.__queueregs.append(r)
+				self.__queueregs_addr.append(r_addr)
 				j += 1
 		if far: self.jump_tables[a] = [size, True]
 		else: self.jump_tables[a] = [size, False, jmpseg]
 		if a not in self.data_labels or (a in self.data_labels and self.data_labels[a].startswith('_unk_')): self.data_labels[a] = f'_jmp_{a:05x}'
 
-	def queue_add(self, addr, r = None):
+	def queue_add(self, addr, r = None, r_addr = None):
 		if not len(self.__regions): raise ValueError('no code regions loaded')
 		if addr < 0: raise ValueError('address must not be negative')
 		addr &= 0xffffe
+		if addr < 6:
+			calinfo = inspect.currentframe().f_back
+			logging.warning(f'{self.__curr_log_prefix}{calinfo.f_code.co_name}:{calinfo.f_lineno}: Attempted to add address {addr:05X} to queue (vector table)')
+			return False
 		if addr not in self.code and addr not in self.__queue:
 			if (addr - 2 in self.code and len(self.code[addr - 2][0]) >= 2) or (addr - 4 in self.code and len(self.code[addr - 4][0]) >= 4):
-				logging.debug(f'Address {YELLOW}{addr:05X}{END} not added, as it is in the middle of an instruction')
+				calinfo = inspect.currentframe().f_back
+				logging.debug(f'{self.__curr_log_prefix}{calinfo.f_code.co_name}:{calinfo.f_lineno}: Attempted to add address {YELLOW}{addr:05X}{END} to queue (middle of instruction)')
 				return False
 			self.__queue.append(addr)
 			self.__queueregs.append(self.r.copy() if r is None else r.copy())
+			self.__queueregs_addr.append(self.r_addr.copy() if r is None or r_addr is None else r_addr.copy())
 			return True
 
 		return True
 
-	def read_word(self, addr):
+	def read_byte(self, addr):
 		if not len(self.__regions): raise ValueError('no code regions loaded')
 		if addr < 0: raise ValueError('address must not be negative')
-		if self.max() <= addr:
+		if self.min_addr() <= addr:
+			for start, code_bytes in self.__regions:
+				if addr >= start and addr < start + len(code_bytes): return code_bytes[addr-start]
+		return self.__pad_word & 0xff
+
+	def read_word(self, addr):
+		a = self.__read_word(addr)
+		return self.__pad_word if a is None else a
+
+	def __read_word(self, addr):
+		if not len(self.__regions): raise ValueError('no code regions loaded')
+		if addr < 0: raise ValueError('address must not be negative')
+		if self.min_addr() <= addr:
 			for start, code_bytes in self.__regions:
 				if addr >= start and addr < start + len(code_bytes): return (code_bytes[addr-start+1] << 8) | code_bytes[addr-start]
-		return self.__pad_word
+		return
 
 	def fetch(self):
-		a = self.read_word(self.pc)
+		if self.rollover:
+			self.rollover = False
+			logging.warning(f'{self.__curr_log_prefix}PC rollover')
+			raise RuntimeError
+		a = self.__read_word(self.pc)
 		self.__instrl.append(a)
+		prev_csr = self.pc >> 16
 		self.pc += 2
+		if self.pc >> 16 != prev_csr: self.rollover = True
 		return a
 
 	def decode(self, instr):
